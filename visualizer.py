@@ -155,6 +155,16 @@ def plot_orbit(
     ax = fig.add_axes([0.06, 0.08, 0.88, 0.82])
     draw_earth(ax)
 
+    # ── Harvard University marker (Cambridge, MA) ──
+    ax.plot(-71.1097, 42.3736, marker="o", markersize=7, color="crimson",
+            markeredgecolor="white", markeredgewidth=0.8, zorder=8)
+    ax.annotate(
+        "Harvard", (-71.1172, 42.3744),
+        textcoords="offset points", xytext=(8, -10),
+        fontsize=7, fontweight="bold", color="crimson",
+        fontfamily="monospace", zorder=8,
+    )
+
     # ── axis styling ──
     ax.set_xlim(-180, 180)
     ax.set_ylim(-90, 90)
@@ -228,17 +238,13 @@ def plot_orbit(
             ha="right", va="center", fontsize=10, fontweight="bold",
             color="#556666", fontfamily="monospace",
         )
-        fig.text(
-            0.925, 0.95, "\u25CB",
-            ha="center", va="center", fontsize=13,
-            color="#556666", fontfamily="monospace",
-        )
         live_dot = None
 
     # Container for LineCollection artists (cleared each redraw)
     track_artists = []
 
-    # ── helpers ──
+    # ── shared helpers ──
+
     def _build_segments(lon, lat):
         """Split the track at ±180° wrap-arounds."""
         segments, seg_t = [], []
@@ -256,18 +262,14 @@ def plot_orbit(
         seg_t.append(np.array(cur_t))
         return segments, seg_t
 
-    def _draw_track(n_now):
-        """Recompute and redraw the ground track for *n_now* orbits."""
-        # Remove previous line collections
-        for a in track_artists:
-            a.remove()
-        track_artists.clear()
+    def _add_track_segments(lon, lat, t_array=None):
+        """Build LineCollections from lon/lat, add to ax, and track artists.
 
-        lon, lat, _t = ground_track(
-            semi_major_axis, eccentricity, inclination, raan, arg_periapsis,
-            n_orbits=n_now, n_points=max(int(n_now * 1500), 500),
-        )
-
+        *t_array* maps each point to a colour value in [0, 1].
+        If None, a linear ramp over the full array is used.
+        """
+        if t_array is None:
+            t_array = np.linspace(0.0, 1.0, len(lon))
         segments, seg_t = _build_segments(lon, lat)
         for (sx, sy), st in zip(segments, seg_t):
             if len(sx) < 2:
@@ -280,12 +282,17 @@ def plot_orbit(
             ax.add_collection(lc)
             track_artists.append(lc)
 
-        # Update markers
+    def _clear_track():
+        """Remove all tracked LineCollection artists from the axes."""
+        for a in track_artists:
+            a.remove()
+        track_artists.clear()
+
+    def _update_markers_and_hud(lon, lat, n_now):
+        """Update satellite marker, start marker, and HUD text."""
         sat_marker.set_data([lon[-1]], [lat[-1]])
         sat_label.xy = (lon[-1], lat[-1])
         start_marker.set_data([lon[0]], [lat[0]])
-
-        # Update HUD
         hud_text.set_text(
             f"ALT: {alt_km:.0f} km   "
             f"INC: {inclination:.1f}\u00b0   "
@@ -293,6 +300,16 @@ def plot_orbit(
             f"PERIOD: {period / 60:.1f} min   "
             f"ORBITS: {n_now:.2f}"
         )
+
+    def _draw_track(n_now):
+        """Recompute and redraw the full ground track for *n_now* orbits."""
+        _clear_track()
+        lon, lat, _t = ground_track(
+            semi_major_axis, eccentricity, inclination, raan, arg_periapsis,
+            n_orbits=n_now, n_points=max(int(n_now * 1500), 500),
+        )
+        _add_track_segments(lon, lat)
+        _update_markers_and_hud(lon, lat, n_now)
 
     # ═══════════════════════════════════════════
     # Static mode — draw once and show
@@ -303,41 +320,17 @@ def plot_orbit(
         return
 
     # ═══════════════════════════════════════════
-    # Live mode — incremental track drawing
+    # Live mode — incremental appends with
+    # periodic full redraws to bound memory
     # ═══════════════════════════════════════════
-    speed_factor = 1.0  # Real-time (set higher to speed up for testing)
-    last_n = [head_start_orbits]  # track how far we've drawn so far
+    speed_factor = 1.0                # Real-time (set higher to speed up for testing)
+    last_n = [head_start_orbits]      # track how far we've drawn so far
+    frames_since_redraw = [0]
+    FULL_REDRAW_INTERVAL = 30         # consolidate artists every N frames
 
     # Draw the initial head-start portion
     if head_start_orbits > 0:
-        lon_init, lat_init, _ = ground_track(
-            semi_major_axis, eccentricity, inclination, raan, arg_periapsis,
-            n_orbits=head_start_orbits,
-            n_points=max(int(head_start_orbits * 1500), 500),
-        )
-        # Build initial segments
-        segments, seg_t = _build_segments(lon_init, lat_init)
-        for (sx, sy), st in zip(segments, seg_t):
-            if len(sx) < 2:
-                continue
-            pts = np.column_stack([sx, sy]).reshape(-1, 1, 2)
-            segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
-            lc = LineCollection(segs, cmap=cmap, norm=plt.Normalize(0, 1),
-                                linewidths=1.8, alpha=0.95, zorder=5)
-            lc.set_array(st[:-1])
-            ax.add_collection(lc)
-            track_artists.append(lc)
-        # Set initial markers
-        sat_marker.set_data([lon_init[-1]], [lat_init[-1]])
-        sat_label.xy = (lon_init[-1], lat_init[-1])
-        start_marker.set_data([lon_init[0]], [lat_init[0]])
-        hud_text.set_text(
-            f"ALT: {alt_km:.0f} km   "
-            f"INC: {inclination:.1f}\u00b0   "
-            f"ECC: {eccentricity:.4f}   "
-            f"PERIOD: {period / 60:.1f} min   "
-            f"ORBITS: {head_start_orbits:.2f}"
-        )
+        _draw_track(head_start_orbits)
 
     def _update(frame):
         elapsed = _time.time() - t0
@@ -347,52 +340,32 @@ def plot_orbit(
         if n_now - n_prev < 1e-6:
             return
 
-        # Compute the full track up to n_now (needed for correct positions)
+        frames_since_redraw[0] += 1
+
+        # Periodically do a full redraw to consolidate artists and free memory
+        if frames_since_redraw[0] >= FULL_REDRAW_INTERVAL:
+            _draw_track(n_now)
+            frames_since_redraw[0] = 0
+            last_n[0] = n_now
+            return
+
+        # Incremental append: compute full track, draw only the new slice
         total_pts = max(int(n_now * 1500), 500)
         lon, lat, _t = ground_track(
             semi_major_axis, eccentricity, inclination, raan, arg_periapsis,
             n_orbits=n_now, n_points=total_pts,
         )
 
-        # Only draw the NEW slice since last frame
         frac = n_prev / n_now if n_now > 0 else 0
         start_idx = max(int(frac * len(lon)) - 2, 0)  # small overlap
-
         new_lon = lon[start_idx:]
         new_lat = lat[start_idx:]
 
         if len(new_lon) >= 2:
-            points = np.column_stack([new_lon, new_lat]).reshape(-1, 1, 2)
-            segs = np.concatenate([points[:-1], points[1:]], axis=1)
+            t_vals = np.linspace(n_prev / n_now, 1.0, len(new_lon))
+            _add_track_segments(new_lon, new_lat, t_vals)
 
-            # Filter out wrap-around jumps at ±180°
-            diffs = np.abs(segs[:, 1, 0] - segs[:, 0, 0])
-            mask = diffs < 180
-            segs = segs[mask]
-
-            if len(segs) > 0:
-                t_vals = np.linspace(n_prev / n_now, 1.0, len(segs))
-                lc = LineCollection(segs, cmap=cmap, norm=plt.Normalize(0, 1),
-                                    linewidths=1.8, alpha=0.95, zorder=5)
-                lc.set_array(t_vals)
-                ax.add_collection(lc)
-                track_artists.append(lc)
-
-        # Update satellite position marker
-        sat_marker.set_data([lon[-1]], [lat[-1]])
-        sat_label.xy = (lon[-1], lat[-1])
-
-        # Update HUD
-        hud_text.set_text(
-            f"ALT: {alt_km:.0f} km   "
-            f"INC: {inclination:.1f}\u00b0   "
-            f"ECC: {eccentricity:.4f}   "
-            f"PERIOD: {period / 60:.1f} min   "
-            f"ORBITS: {n_now:.2f}"
-        )
-
-        # Blink LIVE dot is handled by a separate timer below
-
+        _update_markers_and_hud(lon, lat, n_now)
         last_n[0] = n_now
 
     fig._live_anim = FuncAnimation(
