@@ -21,6 +21,8 @@ import panel_altitude
 import panel_signal
 import panel_temperature
 import panel_power
+import packet_store
+import tinygs_mqtt
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -141,6 +143,10 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
     head_start_orbits : float
         Pre-drawn orbits so the map isn't empty at launch (live mode only).
     """
+
+    # ── Start MQTT packet collector (daemon thread) ──
+    if live:
+        tinygs_mqtt.start_listener()
 
     # ── Fetch orbital data from CelesTrak ──
     inc, raan, ecc, argp, sma = visualizer.get_elements()
@@ -279,6 +285,11 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         ha="left", va="center", fontsize=10, fontweight="bold",
         color="#ff4444", fontfamily="monospace",
     )
+    db_text = fig.text(
+        0.04, 0.02, "DB: 0 pkts",
+        ha="left", va="center", fontsize=7,
+        color="#446688", fontfamily="monospace",
+    )
 
     # ── LIVE / OFFLINE indicator (top-right) ──
     if live:
@@ -375,6 +386,13 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         if live_dot is not None:
             blink_state[0] = not blink_state[0]
             live_dot.set_alpha(1.0 if blink_state[0] else 0.0)
+
+        # Update DB packet count in HUD
+        try:
+            n_pkts = packet_store.packet_count()
+            db_text.set_text(f"DB: {n_pkts} pkts")
+        except Exception:
+            pass
 
     fig._tick_anim = FuncAnimation(
         fig, _tick, interval=600, cache_frame_data=False,
