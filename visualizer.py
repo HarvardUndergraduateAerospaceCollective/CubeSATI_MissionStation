@@ -4,11 +4,18 @@ Handles TLE fetching from CelesTrak and Keplerian orbital mechanics.
 All computation, no plotting — plotting lives in missioncontrol.py.
 """
 
+import json
+import time
+from pathlib import Path
+
 import numpy as np
 
 # ──────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────
+
+CACHE_DIR = Path(__file__).parent / ".tle_cache"
+CACHE_MAX_AGE = 2 * 60 * 60  # 2 hours in seconds
 
 MU_EARTH = 3.986004418e14          # m^3 s^-2
 R_EARTH = 6_371_000                # m
@@ -99,11 +106,39 @@ def orbital_altitude(
 # TLE fetching
 # ──────────────────────────────────────────────
 
+def _cache_path(cat_nr: int) -> Path:
+    return CACHE_DIR / f"{cat_nr}.json"
+
+
+def _load_cache(cat_nr: int):
+    path = _cache_path(cat_nr)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if time.time() - data["timestamp"] < CACHE_MAX_AGE:
+            return tuple(data["elements"])
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return None
+
+
+def _save_cache(cat_nr: int, elements: tuple):
+    CACHE_DIR.mkdir(exist_ok=True)
+    payload = {"timestamp": time.time(), "elements": list(elements)}
+    _cache_path(cat_nr).write_text(json.dumps(payload))
+
+
 def get_elements(cat_nr: int = 25544):
     """
     Fetch TLE from CelesTrak for the given NORAD catalog number.
+    Results are cached for 2 hours to avoid rate-limiting.
     Returns (inclination, raan, eccentricity, arg_periapsis, semi_major_axis).
     """
+    cached = _load_cache(cat_nr)
+    if cached is not None:
+        return cached
+
     import requests
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={cat_nr}&FORMAT=TLE"
     response = requests.get(url)
@@ -120,4 +155,6 @@ def get_elements(cat_nr: int = 25544):
     mean_motion   = float(line2[52:63].strip())
     sma = (MU_EARTH / (mean_motion * 2 * np.pi / 86400) ** 2) ** (1 / 3)
 
-    return inclination, raan, eccentricity, arg_periapsis, sma
+    elements = (inclination, raan, eccentricity, arg_periapsis, sma)
+    _save_cache(cat_nr, elements)
+    return elements
