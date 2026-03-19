@@ -59,8 +59,9 @@ def _init_tables(conn: sqlite3.Connection):
             frequency_mhz REAL,
             rssi          REAL,
             snr           REAL,
+            crc_error     INTEGER DEFAULT 0,           -- 1 if CRC failed
             raw_frame     BLOB,
-            decoded_json  TEXT,                       -- full decoded payload
+            decoded_json  TEXT,                       -- full decoded beacon telemetry
             source        TEXT    NOT NULL DEFAULT 'unknown'
         );
 
@@ -95,6 +96,7 @@ def store_packet(
     frequency_mhz: Optional[float] = None,
     rssi: Optional[float] = None,
     snr: Optional[float] = None,
+    crc_error: bool = False,
     raw_frame: Optional[bytes] = None,
     decoded: Optional[dict] = None,
     source: str = "unknown",
@@ -109,10 +111,12 @@ def store_packet(
         cur.execute(
             """INSERT INTO packets
                (received_at, satellite, norad_id, station,
-                frequency_mhz, rssi, snr, raw_frame, decoded_json, source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                frequency_mhz, rssi, snr, crc_error,
+                raw_frame, decoded_json, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (received_at, satellite, norad_id, station,
-             frequency_mhz, rssi, snr, raw_frame, decoded_json, source),
+             frequency_mhz, rssi, snr, int(crc_error),
+             raw_frame, decoded_json, source),
         )
         return cur.lastrowid
 

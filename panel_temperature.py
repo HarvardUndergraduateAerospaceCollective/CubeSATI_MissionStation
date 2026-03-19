@@ -1,32 +1,41 @@
 """
 Panel: Thermal Telemetry
-Displays satellite bus temperature over time.
-[SKELETON — real data source TBD, currently generates simulated data]
+Displays satellite sensor telemetry over time.
+Data source: packet_store telemetry table (populated by tinygs_mqtt).
+
+The telemetry key is configurable — set TELEMETRY_KEY to whichever beacon
+field carries temperature data once the OBC firmware enables _add_sensor_data.
 """
 
 import numpy as np
+import packet_store
 
-TITLE   = "TEMPERATURE"
-Y_LABEL = "°C"
-X_LABEL = "Time (min)"
-COLOR   = "#ffcc00"
+TITLE          = "TEMPERATURE"
+Y_LABEL        = "°C"
+X_LABEL        = "Time (min)"
+COLOR          = "#ffcc00"
+SOURCE         = "telemetry"
+TELEMETRY_KEY  = "FSM_acc_0"   # placeholder until temp sensor field is added
 
 
-def compute(orbital_elements: dict, n_orbits: float, n_points: int = 500):
-    """Return (time_minutes, temperature_celsius) arrays.
+def compute():
+    """Return (time_minutes, values) arrays from stored telemetry.
 
-    Skeleton implementation — replace internals with real telemetry source.
+    Queries the telemetry table for TELEMETRY_KEY.  Returns empty arrays
+    when no matching readings exist yet.
     """
-    from visualizer import orbital_period
+    rows = packet_store.telemetry_series(TELEMETRY_KEY)
+    if not rows:
+        return np.array([]), np.array([])
 
-    period_min = orbital_period(orbital_elements["sma"]) / 60.0
-    t_min = np.linspace(0, n_orbits * period_min, n_points)
+    values = np.array([r["value"] for r in rows], dtype=float)
 
-    # Simulated: thermal cycling between sunlit (~+20 °C) and eclipse (~-10 °C)
-    rng = np.random.default_rng(7)
-    temp = (
-        5
-        + 15 * np.sin(2 * np.pi * t_min / period_min - np.pi / 4)
-        + 2 * rng.normal(size=n_points)
-    )
-    return t_min, temp
+    from datetime import datetime
+    try:
+        times = [datetime.fromisoformat(r["timestamp"]) for r in rows]
+        t0 = times[0]
+        t_min = np.array([(t - t0).total_seconds() / 60.0 for t in times])
+    except Exception:
+        t_min = np.arange(len(values), dtype=float)
+
+    return t_min, values

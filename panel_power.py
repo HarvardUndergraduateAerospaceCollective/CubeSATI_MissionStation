@@ -1,34 +1,38 @@
 """
 Panel: Power System
-Displays battery state-of-charge over time.
-[SKELETON — real data source TBD, currently generates simulated data]
+Displays battery voltage from decoded satellite beacon telemetry.
+Data source: packet_store telemetry table, key "FSM_batt_v" (populated by tinygs_mqtt).
 """
 
 import numpy as np
+import packet_store
 
-TITLE   = "POWER"
-Y_LABEL = "SoC (%)"
-X_LABEL = "Time (min)"
-COLOR   = "#ff4400"
+TITLE          = "POWER"
+Y_LABEL        = "Volts (V)"
+X_LABEL        = "Time (min)"
+COLOR          = "#ff4400"
+SOURCE         = "telemetry"
+TELEMETRY_KEY  = "FSM_batt_v"
 
 
-def compute(orbital_elements: dict, n_orbits: float, n_points: int = 500):
-    """Return (time_minutes, state_of_charge_percent) arrays.
+def compute():
+    """Return (time_minutes, battery_voltage) arrays from stored telemetry.
 
-    Skeleton implementation — replace internals with real telemetry source.
+    Queries the telemetry table for FSM_batt_v.  Returns empty arrays
+    when no readings exist yet.
     """
-    from visualizer import orbital_period
+    rows = packet_store.telemetry_series(TELEMETRY_KEY)
+    if not rows:
+        return np.array([]), np.array([])
 
-    period_min = orbital_period(orbital_elements["sma"]) / 60.0
-    t_min = np.linspace(0, n_orbits * period_min, n_points)
+    values = np.array([r["value"] for r in rows], dtype=float)
 
-    # Simulated: charge in sunlight, discharge in eclipse
-    rng = np.random.default_rng(13)
-    phase = (t_min % period_min) / period_min
-    soc = (
-        60
-        + 30 * (0.5 + 0.5 * np.sin(2 * np.pi * phase - np.pi / 3))
-        + 1.5 * rng.normal(size=n_points)
-    )
-    soc = np.clip(soc, 0, 100)
-    return t_min, soc
+    from datetime import datetime
+    try:
+        times = [datetime.fromisoformat(r["timestamp"]) for r in rows]
+        t0 = times[0]
+        t_min = np.array([(t - t0).total_seconds() / 60.0 for t in times])
+    except Exception:
+        t_min = np.arange(len(values), dtype=float)
+
+    return t_min, values

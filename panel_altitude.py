@@ -10,6 +10,7 @@ TITLE   = "ALTITUDE"
 Y_LABEL = "Alt (km)"
 X_LABEL = "Time (min)"
 COLOR   = "#00ccff"
+SOURCE  = "orbital"
 
 
 def compute(orbital_elements: dict, n_orbits: float, n_points: int = 500):

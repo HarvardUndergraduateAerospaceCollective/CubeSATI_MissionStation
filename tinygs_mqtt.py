@@ -4,6 +4,26 @@ TinyGS MQTT Listener — Receives satellite telemetry packets in real time.
 Subscribes to the TinyGS MQTT broker and stores every received frame
 in the local SQLite database via ``packet_store``.
 
+TinyGS MQTT message format (per ground station reception)::
+
+    {
+      "satellite": "CubeSatI",
+      "NORAD": 99999,
+      "station_location": [lat, lon],
+      "mode": "LoRa",
+      "frequency": 436.7,
+      "rssi": -118.0,
+      "snr": -6.75,
+      "data": "<base64 encoded raw satellite bytes>",
+      "crc_error": false,
+      "unix_GS_time": 1711123456,
+      ...
+    }
+
+The ``data`` field is **base64-encoded** raw bytes from the satellite radio.
+For the CubeSAT-I, those bytes are a 6-byte PacketManager header followed
+by a BinaryEncoder TLV payload (see ``beacon_decoder.py``).
+
 Usage
 -----
 As a background thread inside the dashboard::
@@ -20,6 +40,7 @@ Configuration
 Fill in the constants below or set the corresponding environment variables.
 """
 
+import base64
 import json
 import logging
 import os
@@ -28,6 +49,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
+import beacon_decoder
 import packet_store
 
 log = logging.getLogger(__name__)
@@ -45,10 +67,15 @@ MQTT_PORT     = int(os.environ.get("TINYGS_MQTT_PORT", "1883"))
 MQTT_USERNAME = os.environ.get("TINYGS_MQTT_USER", "")      # <-- your TinyGS username
 MQTT_PASSWORD = os.environ.get("TINYGS_MQTT_PASS", "")      # <-- your TinyGS API key / password
 
-# Which satellite(s) to follow  (NORAD catalog number as string)
+# Which satellite(s) to follow  (NORAD catalog number as int)
 # PIN: Replace with your CubeSAT's NORAD ID once it's assigned.
-# Example: "25544" for ISS.  Multiple IDs separated by comma.
-SAT_NORAD_IDS = os.environ.get("TINYGS_SAT_IDS", "25544").split(",")
+# Multiple IDs separated by comma.  Leave blank to accept ALL satellites.
+SAT_NORAD_IDS: set[int] = set()
+_raw_ids = os.environ.get("TINYGS_SAT_IDS", "")
+for _id in _raw_ids.split(","):
+    _id = _id.strip()
+    if _id.isdigit():
+        SAT_NORAD_IDS.add(int(_id))
 
 
 # ──────────────────────────────────────────────
@@ -56,18 +83,13 @@ SAT_NORAD_IDS = os.environ.get("TINYGS_SAT_IDS", "25544").split(",")
 # ──────────────────────────────────────────────
 
 def _subscribe_topics() -> list[str]:
-    """Build MQTT topic filters for the configured satellites."""
-    # TinyGS publishes received packets on:
-    #   tinygs/satellite/<norad_id>/rx
-    # and station-level data on:
-    #   tinygs/station/<station_name>/rx
-    # We subscribe to the satellite-level feed.
-    topics = []
-    for norad in SAT_NORAD_IDS:
-        norad = norad.strip()
-        if norad:
-            topics.append(f"tinygs/satellite/{norad}/rx")
-    return topics
+    """Build MQTT topic filters for TinyGS.
+
+    TinyGS stations publish received packets on ``tinygs/tele/rx``.
+    We subscribe to that global feed and filter by NORAD ID in the
+    message handler.
+    """
+    return ["tinygs/tele/rx"]
 
 
 # ──────────────────────────────────────────────
@@ -75,28 +97,50 @@ def _subscribe_topics() -> list[str]:
 # ──────────────────────────────────────────────
 
 def _parse_and_store(payload: bytes, topic: str):
-    """Decode a TinyGS JSON message and persist it."""
+    """Decode a TinyGS JSON message, decode the beacon, and persist everything."""
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
-        # Not JSON — store raw frame only
-        packet_store.store_packet(
-            raw_frame=payload,
-            source="tinygs_mqtt",
-        )
+        packet_store.store_packet(raw_frame=payload, source="tinygs_mqtt")
         log.warning("Received non-JSON packet (%d bytes), stored raw", len(payload))
         return
 
-    # Extract common TinyGS fields (best-effort; schema may vary)
-    satellite  = data.get("satellite", data.get("sat", ""))
-    norad_id   = data.get("norad", data.get("norad_id"))
+    # ── Extract TinyGS envelope fields ──────────────────────────
+    satellite  = data.get("satellite", "")
+    norad_id   = data.get("NORAD", data.get("norad"))
     station    = data.get("station", data.get("stationName", ""))
-    freq       = data.get("frequency", data.get("freq"))
+    freq       = data.get("frequency")
     rssi       = data.get("rssi")
     snr        = data.get("snr")
-    raw_hex    = data.get("data", data.get("payload", ""))
-    raw_bytes  = bytes.fromhex(raw_hex) if isinstance(raw_hex, str) and raw_hex else None
+    crc_error  = data.get("crc_error", False)
 
+    # Filter by NORAD ID if configured (empty set = accept all)
+    if SAT_NORAD_IDS and norad_id is not None and int(norad_id) not in SAT_NORAD_IDS:
+        return
+
+    # ── Decode the raw satellite payload (base64 → bytes) ──────
+    raw_b64 = data.get("data", "")
+    try:
+        raw_bytes = base64.b64decode(raw_b64) if raw_b64 else None
+    except Exception:
+        raw_bytes = None
+        log.warning("Failed to base64-decode 'data' field")
+
+    # ── Run the CubeSAT-I beacon decoder ───────────────────────
+    beacon_telemetry: dict = {}
+    if raw_bytes and not crc_error:
+        try:
+            result = beacon_decoder.decode_beacon(raw_bytes)
+            beacon_telemetry = result.get("telemetry", {})
+        except Exception:
+            log.debug("Beacon decode failed (may not be our satellite)", exc_info=True)
+
+    # Merge TinyGS envelope + decoded beacon for the decoded_json column
+    decoded_combined = {**data}
+    if beacon_telemetry:
+        decoded_combined["_beacon"] = beacon_telemetry
+
+    # ── Persist packet ─────────────────────────────────────────
     pkt_id = packet_store.store_packet(
         satellite=str(satellite),
         norad_id=int(norad_id) if norad_id is not None else None,
@@ -104,31 +148,36 @@ def _parse_and_store(payload: bytes, topic: str):
         frequency_mhz=float(freq) if freq is not None else None,
         rssi=float(rssi) if rssi is not None else None,
         snr=float(snr) if snr is not None else None,
+        crc_error=bool(crc_error),
         raw_frame=raw_bytes,
-        decoded=data,
+        decoded=decoded_combined,
         source="tinygs_mqtt",
     )
 
-    # Store numeric fields as telemetry rows for easy time-series queries
-    readings = []
+    # ── Store telemetry time-series rows ───────────────────────
+    readings: list[tuple[str, float, str]] = []
+
+    # RF-level readings (always available from TinyGS envelope)
     if rssi is not None:
         readings.append(("rssi", float(rssi), "dBm"))
     if snr is not None:
         readings.append(("snr", float(snr), "dB"))
 
-    # PIN: Add your CubeSAT-specific decoded fields here.
-    # Example: if the decoded payload contains temperature, battery voltage, etc.
-    #   temp = data.get("temperature")
-    #   if temp is not None:
-    #       readings.append(("temperature", float(temp), "°C"))
-    #   batt = data.get("battery_voltage")
-    #   if batt is not None:
-    #       readings.append(("battery_voltage", float(batt), "V"))
+    # Satellite beacon telemetry (from binary decoder)
+    if beacon_telemetry:
+        readings.extend(beacon_decoder.extract_telemetry_readings(beacon_telemetry))
 
     if readings:
         packet_store.store_telemetry_batch(pkt_id, readings)
 
-    log.info("Stored packet #%d from station %s (sat=%s)", pkt_id, station, satellite)
+    decoded_count = len(beacon_telemetry)
+    log.info(
+        "Stored packet #%d  sat=%s  station=%s  rssi=%.1f  snr=%.1f  beacon_fields=%d",
+        pkt_id, satellite, station,
+        float(rssi) if rssi is not None else 0,
+        float(snr) if snr is not None else 0,
+        decoded_count,
+    )
 
 
 # ──────────────────────────────────────────────

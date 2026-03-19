@@ -1,32 +1,44 @@
 """
 Panel: Signal Strength
-Displays downlink signal strength / link margin over time.
-[SKELETON — real data source TBD, currently generates simulated data]
+Displays ground-station RSSI from received TinyGS packets over time.
+Data source: packet_store (packets.rssi column, populated by tinygs_mqtt).
 """
 
 import numpy as np
+import packet_store
 
 TITLE   = "SIGNAL"
-Y_LABEL = "dBm"
+Y_LABEL = "RSSI (dBm)"
 X_LABEL = "Time (min)"
 COLOR   = "#00ffcc"
+SOURCE  = "telemetry"
 
 
-def compute(orbital_elements: dict, n_orbits: float, n_points: int = 500):
-    """Return (time_minutes, signal_dbm) arrays.
+def compute():
+    """Return (time_minutes, rssi_dbm) arrays from stored packets.
 
-    Skeleton implementation — replace internals with real telemetry source.
+    Reads RSSI values from the packets table.  Returns empty arrays
+    when no packets have been received yet.
     """
-    from visualizer import orbital_period
+    rows = packet_store.recent_packets(n=500)
+    if not rows:
+        return np.array([]), np.array([])
 
-    period_min = orbital_period(orbital_elements["sma"]) / 60.0
-    t_min = np.linspace(0, n_orbits * period_min, n_points)
+    # Build arrays — oldest first
+    rows = list(reversed(rows))
+    values = np.array([r["rssi"] for r in rows if r.get("rssi") is not None],
+                      dtype=float)
+    if len(values) == 0:
+        return np.array([]), np.array([])
 
-    # Simulated: signal peaks near overhead passes, dips at horizon
-    rng = np.random.default_rng(42)
-    signal = (
-        -80
-        + 20 * np.sin(2 * np.pi * t_min / period_min)
-        + 3 * rng.normal(size=n_points)
-    )
-    return t_min, signal
+    # X-axis: sequential sample index (minutes unavailable without timestamps parse)
+    from datetime import datetime
+    try:
+        times = [datetime.fromisoformat(r["received_at"]) for r in rows
+                 if r.get("rssi") is not None]
+        t0 = times[0]
+        t_min = np.array([(t - t0).total_seconds() / 60.0 for t in times])
+    except Exception:
+        t_min = np.arange(len(values), dtype=float)
+
+    return t_min, values

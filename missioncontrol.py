@@ -258,15 +258,31 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
 
     # ── Side panels ──
     panel_lines = []
+    _NO_DATA_LABELS = []
     for mod, row, col in _PANEL_LAYOUT:
         ax_p = fig.add_subplot(gs[row, col])
         ax_p.set_box_aspect(1)  # force square shape
         _style_panel_ax(ax_p, mod.TITLE, mod.Y_LABEL, mod.COLOR)
-        x, y = mod.compute(orbital, n_orbits)
-        line, = ax_p.plot(x, y, color=mod.COLOR, linewidth=1.0, alpha=0.9)
-        margin = (y.max() - y.min()) * 0.08 or 1.0
-        ax_p.set_xlim(x[0], x[-1])
-        ax_p.set_ylim(y.min() - margin, y.max() + margin)
+
+        # Dispatch based on data source
+        if getattr(mod, "SOURCE", "orbital") == "telemetry":
+            x, y = mod.compute()
+        else:
+            x, y = mod.compute(orbital, n_orbits)
+
+        if len(x) == 0:
+            # No telemetry data yet — show placeholder
+            line, = ax_p.plot([], [], color=mod.COLOR, linewidth=1.0, alpha=0.9)
+            lbl = ax_p.text(0.5, 0.5, "AWAITING DATA", transform=ax_p.transAxes,
+                            ha="center", va="center", fontsize=7,
+                            color="#445566", fontfamily="monospace")
+            _NO_DATA_LABELS.append((ax_p, lbl))
+        else:
+            line, = ax_p.plot(x, y, color=mod.COLOR, linewidth=1.0, alpha=0.9)
+            margin = (y.max() - y.min()) * 0.08 or 1.0
+            ax_p.set_xlim(x[0], x[-1])
+            ax_p.set_ylim(y.min() - margin, y.max() + margin)
+
         panel_lines.append((ax_p, mod, line))
 
     # ── HUD text overlays ──
@@ -361,11 +377,21 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
 
         # Update side panels for current time window
         for ax_p, mod, line in panel_lines:
-            x, y = mod.compute(orbital, n_now)
+            if getattr(mod, "SOURCE", "orbital") == "telemetry":
+                x, y = mod.compute()
+            else:
+                x, y = mod.compute(orbital, n_now)
+
+            if len(x) == 0:
+                continue
             line.set_data(x, y)
             ax_p.set_xlim(x[0], x[-1])
             margin = (y.max() - y.min()) * 0.08 or 1.0
             ax_p.set_ylim(y.min() - margin, y.max() + margin)
+            # Remove "AWAITING DATA" placeholder if it exists
+            for stored_ax, lbl in _NO_DATA_LABELS:
+                if stored_ax is ax_p:
+                    lbl.set_visible(False)
 
         last_n[0] = n_now
 
@@ -398,6 +424,10 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         fig, _tick, interval=600, cache_frame_data=False,
     )
 
+    fig1 = plt.gcf()
+    figManager = plt.get_current_fig_manager()
+    figManager.full_screen_toggle()
+    fig1.canvas.window().statusBar().setVisible(False)
     plt.show()
 
 
