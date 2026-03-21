@@ -1,3 +1,12 @@
+BIG CHANGES:
+
+web server for visualization, pi3b+, or pi zero (even better!!??, look into this) for calculations and mqtt listener, orbit math, etc....
+
+chromium-browser --kiosk --disable-gpu-compositing --disable-software-rasterizer \
+  --disable-extensions --disable-sync --noerrdialogs \
+  --memory-pressure-thresholds=conservative \
+  http://localhost:5000
+
 
     functional:
     
@@ -24,5 +33,5 @@
 
 
     NOTES:
-    
+
     Currently transmitted: name, time, uptime, FSM state, deployed flag, payload setting, light intensities, best direction, battery voltage, angular velocity, acceleration, magnetometer vector.
