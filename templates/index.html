@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mission Control — HUCSAT</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="anonymous" />
+
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ═══ Top HUD bar ═══ -->
+  <header id="hud-bar">
+    <div id="met-clock" class="hud-item hud-red">MET 00:00:00</div>
+    <div id="hud-title" class="hud-item hud-cyan">SATELLITE  GROUND  TRACK</div>
+    <div id="live-badge" class="hud-item {{ 'hud-red' if live else 'hud-grey' }}">
+      <span id="live-dot">●</span>
+      <span id="live-label">{{ 'LIVE' if live else 'OFFLINE' }}</span>
+    </div>
+  </header>
+
+  <!-- ═══ Main grid ═══ -->
+  <div id="dashboard">
+
+    <!-- Left panels -->
+    <div class="side-panels left-panels">
+      <div class="panel-box" id="panel-0">
+        <div class="panel-title" id="panel-title-0">ALTITUDE</div>
+        <canvas id="chart-0"></canvas>
+        <div class="awaiting" id="awaiting-0">AWAITING DATA</div>
+      </div>
+      <div class="panel-box" id="panel-1">
+        <div class="panel-title" id="panel-title-1">SIGNAL</div>
+        <canvas id="chart-1"></canvas>
+        <div class="awaiting" id="awaiting-1">AWAITING DATA</div>
+      </div>
+    </div>
+
+    <!-- Center map -->
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="hud-overlay">
+        <span id="hud-text"></span>
+      </div>
+    </div>
+
+    <!-- Right panels -->
+    <div class="side-panels right-panels">
+      <div class="panel-box" id="panel-2">
+        <div class="panel-title" id="panel-title-2">TEMPERATURE</div>
+        <canvas id="chart-2"></canvas>
+        <div class="awaiting" id="awaiting-2">AWAITING DATA</div>
+      </div>
+      <div class="panel-box" id="panel-3">
+        <div class="panel-title" id="panel-title-3">POWER</div>
+        <canvas id="chart-3"></canvas>
+        <div class="awaiting" id="awaiting-3">AWAITING DATA</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ Bottom status bar ═══ -->
+  <footer id="status-bar">
+    <span id="db-count">DB: 0 pkts</span>
+  </footer>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin="anonymous"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <!-- Socket.IO (only active in live mode) -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
