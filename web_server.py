@@ -75,6 +75,20 @@ def _init_orbital():
         )
 
 
+# Head-start: show 1 orbit of history on first load, then grow in real time.
+HEAD_START_ORBITS = 1.0
+SPEED_FACTOR = 1.0       # 1.0 = real-time (1 orbital period → 1 new orbit drawn)
+
+
+def _current_n_orbits():
+    """Return n_orbits that grows with real elapsed time, matching missioncontrol.py."""
+    with _state_lock:
+        t0 = _state["t0"]
+        period = _state["period"]
+    elapsed = time.time() - t0
+    return HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS
+
+
 # ──────────────────────────────────────────────
 # Routes
 # ──────────────────────────────────────────────
@@ -87,7 +101,7 @@ def index():
 @app.route("/api/track")
 def api_track():
     """Return ground-track polyline as JSON arrays of [lat, lon] pairs."""
-    n = float(request.args.get("n_orbits", _state["n_orbits"]))
+    n = _current_n_orbits()
     n_points = int(request.args.get("n_points", max(int(n * 500), 200)))
 
     with _state_lock:
@@ -121,7 +135,7 @@ def api_track():
 @app.route("/api/panels")
 def api_panels():
     """Return data for all four side panels."""
-    n = float(request.args.get("n_orbits", _state["n_orbits"]))
+    n = _current_n_orbits()
 
     with _state_lock:
         orbital = _state["orbital"]
@@ -166,7 +180,7 @@ def api_status():
         period = _state["period"]
 
     elapsed = time.time() - t0
-    n_now = elapsed / period if period > 0 else 0
+    n_now = _current_n_orbits()
 
     try:
         n_pkts = packet_store.packet_count()

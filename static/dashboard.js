@@ -7,8 +7,8 @@
   "use strict";
 
   // ── Constants ──
-  const TRACK_REFRESH_MS = 20_000;   // ground-track poll interval
-  const PANEL_REFRESH_MS = 20_000;   // side-panel poll interval
+  const TRACK_REFRESH_MS = 5_000;    // ground-track poll interval
+  const PANEL_REFRESH_MS = 10_000;   // side-panel poll interval
   const STATUS_REFRESH_MS = 1_000;   // HUD status poll interval
   const MET_TICK_MS = 1_000;         // local MET clock tick
   const PANEL_COLORS = ["#00ccff", "#00ffcc", "#ffcc00", "#ff4400"];
