@@ -13,7 +13,6 @@ import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.animation import FuncAnimation
 from PIL import Image
 
 import visualizer
@@ -336,93 +335,97 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         return
 
     # ═══════════════════════════════════════════
-    # Live mode — incremental track + panel updates
+    # Live mode — manual blitting for performance
     # ═══════════════════════════════════════════
+
     speed_factor = 1.0
     last_n = [head_start_orbits]
-    frames_since_redraw = [0]
-    FULL_REDRAW_INTERVAL = 30
 
     if head_start_orbits > 0:
         _draw_track(head_start_orbits)
 
-    def _update(frame):
-        elapsed = _time.time() - t0
-        n_now = head_start_orbits + (elapsed * speed_factor) / period
-        n_prev = last_n[0]
+    # -- Mark overlay artists as animated (excluded from static background) --
+    _overlay_artists = [met_text, db_text, hud_text,
+                        sat_marker, start_marker, sat_label]
+    if live_dot is not None:
+        _overlay_artists.append(live_dot)
+    for a in _overlay_artists:
+        a.set_animated(True)
 
-        if n_now - n_prev < 1e-6:
-            return
+    # -- Initial full draw, then capture the static background --
+    fig.canvas.draw()
+    _bg = [fig.canvas.copy_from_bbox(fig.bbox)]
 
-        frames_since_redraw[0] += 1
-
-        # Periodic full redraw to consolidate artists and free memory
-        if frames_since_redraw[0] >= FULL_REDRAW_INTERVAL:
-            _draw_track(n_now)
-            frames_since_redraw[0] = 0
-        else:
-            # Incremental append — only draw the new slice
-            total_pts = max(int(n_now * 1500), 500)
-            lon, lat, _ = visualizer.ground_track(
-                sma, ecc, inc, raan, argp,
-                n_orbits=n_now, n_points=total_pts,
-            )
-            frac = n_prev / n_now if n_now > 0 else 0
-            start_idx = max(int(frac * len(lon)) - 2, 0)
-            new_lon, new_lat = lon[start_idx:], lat[start_idx:]
-            if len(new_lon) >= 2:
-                t_vals = np.linspace(n_prev / n_now, 1.0, len(new_lon))
-                _add_track_segments(ax_map, track_artists, new_lon, new_lat, t_vals)
-            _update_markers_and_hud(lon, lat, n_now)
-
-        # Update side panels for current time window
-        for ax_p, mod, line in panel_lines:
-            if getattr(mod, "SOURCE", "orbital") == "telemetry":
-                x, y = mod.compute()
+    def _blit_overlays():
+        """Restore cached background and re-draw only the overlay artists."""
+        fig.canvas.restore_region(_bg[0])
+        for a in _overlay_artists:
+            if a.axes is not None:
+                a.axes.draw_artist(a)
             else:
-                x, y = mod.compute(orbital, n_now)
+                fig.draw_artist(a)
+        fig.canvas.blit(fig.bbox)
+        fig.canvas.flush_events()
 
-            if len(x) == 0:
-                continue
-            line.set_data(x, y)
-            ax_p.set_xlim(x[0], x[-1])
-            margin = (y.max() - y.min()) * 0.08 or 1.0
-            ax_p.set_ylim(y.min() - margin, y.max() + margin)
-            # Remove "AWAITING DATA" placeholder if it exists
-            for stored_ax, lbl in _NO_DATA_LABELS:
-                if stored_ax is ax_p:
-                    lbl.set_visible(False)
-
-        last_n[0] = n_now
-
-    fig._live_anim = FuncAnimation(
-        fig, _update, interval=20_000, cache_frame_data=False,
-    )
-
-    # Separate timer for LIVE-dot blink + MET clock (~1 Hz)
+    # -- Combined timer state --
+    _frame = [0]
     blink_state = [True]
+    HEAVY_EVERY = 20          # full track/panel refresh every N ticks
 
-    def _tick(frame):
+    def _on_timer():
+        _frame[0] += 1
         elapsed = _time.time() - t0
-        h = int(elapsed // 3600)
-        m = int((elapsed % 3600) // 60)
-        s = int(elapsed % 60)
+
+        # ── Always: update MET clock, blink dot, DB count ──
+        h, rem = divmod(int(elapsed), 3600)
+        m, s = divmod(rem, 60)
         met_text.set_text(f"MET {h:02d}:{m:02d}:{s:02d}")
 
         if live_dot is not None:
             blink_state[0] = not blink_state[0]
             live_dot.set_alpha(1.0 if blink_state[0] else 0.0)
 
-        # Update DB packet count in HUD
         try:
-            n_pkts = packet_store.packet_count()
-            db_text.set_text(f"DB: {n_pkts} pkts")
+            db_text.set_text(f"DB: {packet_store.packet_count()} pkts")
         except Exception:
             pass
 
-    fig._tick_anim = FuncAnimation(
-        fig, _tick, interval=600, cache_frame_data=False,
-    )
+        # ── Every HEAVY_EVERY ticks: track + panels (full redraw) ──
+        if _frame[0] % HEAVY_EVERY == 0:
+            n_now = head_start_orbits + (elapsed * speed_factor) / period
+            if n_now - last_n[0] > 1e-6:
+                _draw_track(n_now)
+
+                for ax_p, mod, line in panel_lines:
+                    if getattr(mod, "SOURCE", "orbital") == "telemetry":
+                        x, y = mod.compute()
+                    else:
+                        x, y = mod.compute(orbital, n_now)
+                    if len(x) == 0:
+                        continue
+                    line.set_data(x, y)
+                    ax_p.set_xlim(x[0], x[-1])
+                    margin = (y.max() - y.min()) * 0.08 or 1.0
+                    ax_p.set_ylim(y.min() - margin, y.max() + margin)
+                    for stored_ax, lbl in _NO_DATA_LABELS:
+                        if stored_ax is ax_p:
+                            lbl.set_visible(False)
+
+                last_n[0] = n_now
+
+            # Full redraw → recapture background → blit overlays on top
+            fig.canvas.draw()
+            _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
+            _blit_overlays()
+            return
+
+        # ── Fast path: blit only overlays (no full redraw) ──
+        _blit_overlays()
+
+    _timer = fig.canvas.new_timer(interval=1000)
+    _timer.add_callback(_on_timer)
+    _timer.start()
+    fig._live_timer = _timer      # prevent garbage collection
 
     fig1 = plt.gcf()
     figManager = plt.get_current_fig_manager()

@@ -37,10 +37,10 @@ from typing import Optional
 # ──────────────────────────────────────────────
 # | Offset | Size | Description                               |
 # |--------|------|-------------------------------------------|
-# | 0      | 1 B  | packet_identifier (message counter)        |
-# | 1-2    | 2 B  | sequence_number  (big-endian, 0-based)     |
-# | 3-4    | 2 B  | total_packets    (big-endian)               |
-# | 5      | 1 B  | abs(RSSI) of the radio at send time        |
+# | 0      | 1 B  | packet_identifier (message counter)       |
+# | 1-2    | 2 B  | sequence_number  (big-endian, 0-based)    |
+# | 3-4    | 2 B  | total_packets    (big-endian)             |
+# | 5      | 1 B  | abs(RSSI) of the radio at send time       |
 PACKET_HEADER_SIZE = 6
 
 
