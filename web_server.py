@@ -79,6 +79,15 @@ def _init_orbital():
 HEAD_START_ORBITS = 1.0
 SPEED_FACTOR = 1.0       # 1.0 = real-time (1 orbital period → 1 new orbit drawn)
 
+# Per-panel sliding window in minutes (None = show all data).
+# Tune these once you know what looks right for each panel.
+PANEL_WINDOWS = {
+    "panel_altitude":    240,    # last 4 hours
+    "panel_signal":      240,    # last 4 hours
+    "panel_temperature": 2880,   # last 2 days
+    "panel_power":       2880,   # last 2 days
+}
+
 
 def _current_n_orbits():
     """Return n_orbits that grows with real elapsed time, matching missioncontrol.py."""
@@ -86,7 +95,8 @@ def _current_n_orbits():
         t0 = _state["t0"]
         period = _state["period"]
     elapsed = time.time() - t0
-    return HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS
+    # cap at just a bit over one full orbit to keep gui looking nice
+    return min(HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS, 1.1)
 
 
 # ──────────────────────────────────────────────
@@ -146,6 +156,13 @@ def api_panels():
             x, y = mod.compute()
         else:
             x, y = mod.compute(orbital, n)
+
+        # Sliding window: keep only the last N minutes of data
+        window_min = PANEL_WINDOWS.get(mod.__name__)
+        if window_min is not None and len(x) > 0:
+            cutoff = x[-1] - window_min
+            mask = x >= cutoff
+            x, y = x[mask], y[mask]
 
         if len(x) == 0:
             panels.append({
