@@ -8,6 +8,12 @@ chromium-browser --kiosk --disable-gpu-compositing --disable-software-rasterizer
   http://localhost:5000
 
 
+
+SQL STUFF:
+
+can we analysis during the mission
+backups 
+
     functional:
     
     #TODO: rework live/static mode, actual in situ implementation will be "semi"-live mode, with 
