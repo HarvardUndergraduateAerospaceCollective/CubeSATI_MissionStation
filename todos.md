@@ -1,5 +1,9 @@
 BIG CHANGES:
 
+## kai tai decoder!!!
+
+
+
 web server for visualization, pi3b+, or pi zero (even better!!??, look into this) for calculations and mqtt listener, orbit math, etc....
 
 chromium-browser --kiosk --disable-gpu-compositing --disable-software-rasterizer \
