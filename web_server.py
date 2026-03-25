@@ -217,6 +217,48 @@ def api_status():
 
 
 # ──────────────────────────────────────────────
+# Test-only endpoint: simulate a packet write (for stress testing)
+# ──────────────────────────────────────────────
+
+import random as _random
+
+@app.route("/api/test/write", methods=["POST"])
+def api_test_write():
+    """Insert a fake packet + telemetry rows (stress test only)."""
+    pkt_id = packet_store.store_packet(
+        satellite="STRESS-TEST",
+        norad_id=99999,
+        station="stress-client",
+        frequency_mhz=437.5,
+        rssi=round(_random.uniform(-120, -80), 1),
+        snr=round(_random.uniform(0, 15), 1),
+        decoded={"FSM_batt_v": round(_random.uniform(3.0, 4.2), 2)},
+        source="stress_test",
+    )
+    packet_store.store_telemetry_batch(pkt_id, [
+        ("FSM_batt_v",  round(_random.uniform(3.0, 4.2), 2), "V"),
+        ("FSM_acc_0",   round(_random.uniform(-1, 1), 3),    "g"),
+        ("light_int_0", round(_random.uniform(0, 1000), 1),   "lux"),
+    ])
+    return jsonify(ok=True, packet_id=pkt_id)
+
+
+@app.route("/api/test/cleanup", methods=["POST"])
+def api_test_cleanup():
+    """Remove all rows inserted by stress tests."""
+    try:
+        from packet_store import _get_conn
+        conn = _get_conn()
+        conn.execute("DELETE FROM telemetry WHERE packet_id IN "
+                     "(SELECT id FROM packets WHERE source IN ('stress_test', 'stress_bench'))")
+        conn.execute("DELETE FROM packets WHERE source IN ('stress_test', 'stress_bench')")
+        conn.commit()
+        return jsonify(ok=True)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+
+
+# ──────────────────────────────────────────────
 # SocketIO: push new packets to browser in real time
 # ──────────────────────────────────────────────
 

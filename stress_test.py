@@ -15,6 +15,7 @@ Usage (run from a separate machine, or another terminal on the Pi):
     python stress_test.py -n 5                   # 5 concurrent users
     python stress_test.py -n 10 --host 192.168.1.42 --duration 120
     python stress_test.py -n 5 --burst           # burst mode: all users hit simultaneously
+    python stress_test.py -n 3 --db-writes        # simulate MQTT packet writes during reads
 
 Prints per-endpoint latency stats (min/avg/p95/max) and flags any failures.
 Requires: pip install requests  (already needed by visualizer.py)
@@ -38,6 +39,11 @@ ENDPOINTS = {
     "/api/status": 1.0,    # every 1 s
 }
 
+# DB write endpoint (simulates MQTT packets arriving while users browse)
+DB_WRITE_ENDPOINT = "/api/test/write"
+DB_WRITE_INTERVAL = 2.0   # one fake packet every 2 s (realistic MQTT pace)
+DB_CLEANUP_ENDPOINT = "/api/test/cleanup"
+
 # ─────────────────────────────────────────────
 # Result collection (thread-safe)
 # ─────────────────────────────────────────────
@@ -46,13 +52,16 @@ _results = defaultdict(list)   # endpoint -> list of (latency_ms, status_code)
 _errors  = defaultdict(int)    # endpoint -> count of failures
 
 
-def _poll(base_url, endpoint, interval, duration, user_id, burst):
+def _poll(base_url, endpoint, interval, duration, user_id, burst, method="GET"):
     """Simulate one browser tab polling a single endpoint."""
     deadline = time.time() + duration
     while time.time() < deadline:
         t0 = time.perf_counter()
         try:
-            resp = requests.get(f"{base_url}{endpoint}", timeout=30)
+            if method == "POST":
+                resp = requests.post(f"{base_url}{endpoint}", timeout=30)
+            else:
+                resp = requests.get(f"{base_url}{endpoint}", timeout=30)
             latency = (time.perf_counter() - t0) * 1000  # ms
             with _lock:
                 _results[endpoint].append((latency, resp.status_code))
@@ -75,7 +84,7 @@ def _poll(base_url, endpoint, interval, duration, user_id, burst):
             time.sleep(sleep_for)
 
 
-def _simulate_user(base_url, duration, user_id, burst):
+def _simulate_user(base_url, duration, user_id, burst, db_writes=False):
     """Spawn one thread per endpoint to mimic a real browser tab."""
     threads = []
     for endpoint, interval in ENDPOINTS.items():
@@ -86,6 +95,18 @@ def _simulate_user(base_url, duration, user_id, burst):
         )
         threads.append(t)
         t.start()
+
+    # Optionally simulate MQTT packet writes hitting the DB concurrently
+    if db_writes:
+        t = threading.Thread(
+            target=_poll,
+            args=(base_url, DB_WRITE_ENDPOINT, DB_WRITE_INTERVAL,
+                  duration, user_id, burst, "POST"),
+            daemon=True,
+        )
+        threads.append(t)
+        t.start()
+
     return threads
 
 
@@ -101,17 +122,22 @@ def _percentile(data, p):
     return data[f] + (k - f) * (data[c] - data[f])
 
 
-def _print_report(n_users, duration, burst):
+def _print_report(n_users, duration, burst, db_writes):
     """Print latency stats per endpoint."""
     print("\n" + "=" * 72)
     print(f"  STRESS TEST RESULTS — {n_users} user(s), {duration}s"
-          f"{'  [BURST MODE]' if burst else ''}")
+          f"{'  [BURST MODE]' if burst else ''}"
+          f"{'  [+DB WRITES]' if db_writes else ''}")
     print("=" * 72)
 
     total_requests = 0
     total_errors = 0
 
-    for endpoint in ENDPOINTS:
+    all_endpoints = dict(ENDPOINTS)
+    if db_writes:
+        all_endpoints[DB_WRITE_ENDPOINT] = DB_WRITE_INTERVAL
+
+    for endpoint in all_endpoints:
         samples = _results.get(endpoint, [])
         errs = _errors.get(endpoint, 0)
         total_requests += len(samples)
@@ -176,6 +202,7 @@ Examples:
   python stress_test.py -n 5 --duration 60       # 5 users, 1 minute
   python stress_test.py -n 10 --host 10.0.0.5    # 10 users, remote Pi
   python stress_test.py -n 3 --burst             # 3 users, max throughput
+  python stress_test.py -n 3 --db-writes         # 3 users + DB writes
         """,
     )
     parser.add_argument("-n", "--users", type=int, default=1,
@@ -189,6 +216,9 @@ Examples:
     parser.add_argument("--burst", action="store_true",
                         help="Burst mode: fire requests as fast as possible "
                              "(ignores poll intervals)")
+    parser.add_argument("--db-writes", action="store_true",
+                        help="Simulate MQTT packet writes (POST /api/test/write) "
+                             "concurrently with dashboard reads")
     args = parser.parse_args()
 
     base_url = f"http://{args.host}:{args.port}"
@@ -207,11 +237,14 @@ Examples:
     print(f"Server OK. Starting {args.users} simulated user(s) for {args.duration}s...\n")
     if args.burst:
         print("  ⚡ BURST MODE — no delays between requests\n")
+    if args.db_writes:
+        print("  📝 DB WRITES — simulating MQTT packet inserts every 2s per user\n")
 
     # Spawn all users
     all_threads = []
     for uid in range(args.users):
-        threads = _simulate_user(base_url, args.duration, uid, args.burst)
+        threads = _simulate_user(base_url, args.duration, uid, args.burst,
+                                 db_writes=args.db_writes)
         all_threads.extend(threads)
         # Stagger user starts slightly to avoid thundering herd on first request
         if not args.burst and uid < args.users - 1:
@@ -235,7 +268,16 @@ Examples:
     for t in all_threads:
         t.join(timeout=10)
 
-    _print_report(args.users, args.duration, args.burst)
+    _print_report(args.users, args.duration, args.burst, args.db_writes)
+
+    # Clean up stress test rows from the DB
+    if args.db_writes:
+        print("  Cleaning up stress test DB rows...")
+        try:
+            requests.post(f"{base_url}{DB_CLEANUP_ENDPOINT}", timeout=10)
+            print("  ✓ Stress test rows removed\n")
+        except Exception:
+            print("  ⚠ Could not clean up (run POST /api/test/cleanup manually)\n")
 
 
 if __name__ == "__main__":
