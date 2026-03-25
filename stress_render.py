@@ -24,8 +24,9 @@ import sys
 
 try:
     from flask import Flask, Response
+    import requests as _requests
 except ImportError:
-    print("pip install flask  (should already be installed)")
+    print("pip install flask requests  (should already be installed)")
     sys.exit(1)
 
 
@@ -34,8 +35,21 @@ def build_app(server_url):
 
     @app.route("/")
     def index():
-        return Response(PAGE_HTML.replace("__SERVER__", server_url),
+        # Tell the browser to fetch from this same origin (proxy below)
+        return Response(PAGE_HTML.replace("__SERVER__", ""),
                         content_type="text/html")
+
+    # Proxy /api/* to the real dashboard server to avoid CORS issues
+    @app.route("/api/<path:path>")
+    def proxy_api(path):
+        url = f"{server_url}/api/{path}"
+        try:
+            r = _requests.get(url, timeout=15)
+            return Response(r.content, status=r.status_code,
+                            content_type=r.headers.get("Content-Type", "application/json"))
+        except Exception as e:
+            return Response(f'{{"error": "{e}"}}', status=502,
+                            content_type="application/json")
 
     return app
 
@@ -169,8 +183,9 @@ async function benchPanels() {
   results.panel_fetch.push(fetchMs);
 
   const t0 = performance.now();
-  if (Array.isArray(data)) {
-    data.forEach((panel, i) => {
+  const panelArr = data.panels || data;  // handle {panels:[...]} wrapper
+  if (Array.isArray(panelArr)) {
+    panelArr.forEach((panel, i) => {
       if (i < charts.length && panel.x) {
         charts[i].data.labels = panel.x;
         charts[i].data.datasets[0].data = panel.y;
