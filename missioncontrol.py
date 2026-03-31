@@ -20,6 +20,7 @@ import panel_altitude
 import panel_signal
 import panel_temperature
 import panel_power
+import panel_magnetometer
 import packet_store
 import tinygs_mqtt
 
@@ -32,10 +33,11 @@ _EARTH_IMG_PATH = os.path.join(_SCRIPT_DIR, "Equirectangular_projection_SW.jpg")
 
 # Side panels: (module, grid_row, grid_col)
 _PANEL_LAYOUT = [
-    (panel_altitude,    0, 0),   # top-left
-    (panel_signal,      2, 0),   # bottom-left
-    (panel_temperature, 0, 2),   # top-right
-    (panel_power,       2, 2),   # bottom-right
+    (panel_altitude,     0, 0),   # top-left
+    (panel_signal,       2, 0),   # mid-left
+    (panel_magnetometer, 4, 0),   # bottom-left
+    (panel_temperature,  0, 2),   # top-right      (gyroscope)
+    (panel_power,        2, 2),   # mid-right
 ]
 
 # Neon-glow color map for the ground track
@@ -163,16 +165,18 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
     # ── Figure + GridSpec layout ──
     #
     #  ┌──────────┬────────────────────────┬──────────┐
-    #  │ altitude │                        │  temp    │
-    #  ├──────────┤    Ground Track Map    ├──────────┤
-    #  │ signal   │                        │  power   │
+    #  │ altitude │                        │ gyro     │
+    #  ├──────────┤                        ├──────────┤
+    #  │ signal   │    Ground Track Map    │ power    │
+    #  ├──────────┤                        ├──────────┤
+    #  │ magnet.  │                        │          │
     #  └──────────┴────────────────────────┴──────────┘
 
-    fig = plt.figure(figsize=(20, 10), facecolor="#060e1a")
+    fig = plt.figure(figsize=(20, 12), facecolor="#060e1a")
     gs = fig.add_gridspec(
-        3, 3,
+        5, 3,
         width_ratios=[1, 4, 1],
-        height_ratios=[1, 0.15, 1],
+        height_ratios=[1, 0.10, 1, 0.10, 1],
         left=0.04, right=0.96, bottom=0.06, top=0.88,
         wspace=0.22, hspace=0.40,
     )
@@ -305,6 +309,11 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         ha="left", va="center", fontsize=7,
         color="#446688", fontfamily="monospace",
     )
+    fsm_text = fig.text(
+        0.50, 0.02, "FSM: —  DEPL: —  UPTIME: —",
+        ha="center", va="center", fontsize=8,
+        color="#00ddff", fontfamily="monospace",
+    )
 
     # ── LIVE / OFFLINE indicator (top-right) ──
     if live:
@@ -345,7 +354,7 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
         _draw_track(head_start_orbits)
 
     # -- Mark overlay artists as animated (excluded from static background) --
-    _overlay_artists = [met_text, db_text, hud_text,
+    _overlay_artists = [met_text, db_text, fsm_text, hud_text,
                         sat_marker, start_marker, sat_label]
     if live_dot is not None:
         _overlay_artists.append(live_dot)
@@ -387,6 +396,29 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
 
         try:
             db_text.set_text(f"DB: {packet_store.packet_count()} pkts")
+        except Exception:
+            pass
+
+        # ── Update FSM state HUD ──
+        try:
+            fsm = packet_store.latest_fsm_state()
+            if fsm:
+                uptime_str = ""
+                ut = fsm.get("uptime", "")
+                if ut not in ("", None):
+                    try:
+                        secs = int(float(ut))
+                        uh, urem = divmod(secs, 3600)
+                        um, us = divmod(urem, 60)
+                        uptime_str = f"{uh:02d}:{um:02d}:{us:02d}"
+                    except (ValueError, TypeError):
+                        uptime_str = str(ut)
+                _fs = fsm.get("fsm_state", "\u2014")
+                _fd = fsm.get("fsm_depl", "\u2014")
+                _fu = uptime_str or "\u2014"
+                fsm_text.set_text(
+                    f"FSM: {_fs}  DEPL: {_fd}  UPTIME: {_fu}"
+                )
         except Exception:
             pass
 

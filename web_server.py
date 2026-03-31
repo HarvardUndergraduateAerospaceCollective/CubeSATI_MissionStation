@@ -27,6 +27,7 @@ import panel_altitude
 import panel_signal
 import panel_temperature
 import panel_power
+import panel_magnetometer
 import packet_store
 
 log = logging.getLogger(__name__)
@@ -82,10 +83,11 @@ SPEED_FACTOR = 1.0       # 1.0 = real-time (1 orbital period → 1 new orbit dra
 # Per-panel sliding window in minutes (None = show all data).
 # Tune these once you know what looks right for each panel.
 PANEL_WINDOWS = {
-    "panel_altitude":    240,    # last 4 hours
-    "panel_signal":      240,    # last 4 hours
-    "panel_temperature": 2880,   # last 2 days
-    "panel_power":       2880,   # last 2 days
+    "panel_altitude":      240,    # last 4 hours
+    "panel_signal":        240,    # last 4 hours
+    "panel_temperature":   2880,   # gyroscope — last 2 days
+    "panel_power":         2880,   # last 2 days
+    "panel_magnetometer":  2880,   # last 2 days
 }
 
 
@@ -94,9 +96,9 @@ def _current_n_orbits():
     with _state_lock:
         t0 = _state["t0"]
         period = _state["period"]
+        max_orbits = _state["n_orbits"]
     elapsed = time.time() - t0
-    # cap at just a bit over one full orbit to keep gui looking nice
-    return min(HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS, 1.1)
+    return min(HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS, max_orbits)
 
 
 # ──────────────────────────────────────────────
@@ -105,7 +107,8 @@ def _current_n_orbits():
 
 @app.route("/")
 def index():
-    return render_template("index.html", live=_state["live"])
+    return render_template("index.html", live=_state["live"],
+                           cache_bust=int(time.time()))
 
 
 @app.route("/api/track")
@@ -151,7 +154,7 @@ def api_panels():
         orbital = _state["orbital"]
 
     panels = []
-    for mod in [panel_altitude, panel_signal, panel_temperature, panel_power]:
+    for mod in [panel_altitude, panel_signal, panel_temperature, panel_power, panel_magnetometer]:
         if getattr(mod, "SOURCE", "orbital") == "telemetry":
             x, y = mod.compute()
         else:
@@ -204,6 +207,12 @@ def api_status():
     except Exception:
         n_pkts = 0
 
+    # Latest FSM state for HUD
+    fsm = packet_store.latest_fsm_state()
+    fsm_state = fsm["fsm_state"] if fsm else "—"
+    fsm_depl = fsm["fsm_depl"] if fsm else "—"
+    fsm_uptime = fsm["uptime"] if fsm else "—"
+
     return jsonify(
         alt_km=round(alt_km, 1),
         inc=round(inc, 2),
@@ -213,7 +222,21 @@ def api_status():
         elapsed=round(elapsed),
         n_pkts=n_pkts,
         live=_state["live"],
+        fsm_state=fsm_state,
+        fsm_depl=fsm_depl,
+        fsm_uptime=fsm_uptime,
     )
+
+
+# ──────────────────────────────────────────────
+# FSM state timeline endpoint
+# ──────────────────────────────────────────────
+
+@app.route("/api/fsm")
+def api_fsm():
+    """Return FSM state history for the timeline panel."""
+    history = packet_store.fsm_state_history(n=200)
+    return jsonify(history=history)
 
 
 # ──────────────────────────────────────────────
@@ -225,6 +248,7 @@ import random as _random
 @app.route("/api/test/write", methods=["POST"])
 def api_test_write():
     """Insert a fake packet + telemetry rows (stress test only)."""
+    _fsm_states = ["nominal", "safe", "detumble", "deploy", "standby"]
     pkt_id = packet_store.store_packet(
         satellite="STRESS-TEST",
         norad_id=99999,
@@ -232,13 +256,18 @@ def api_test_write():
         frequency_mhz=437.5,
         rssi=round(_random.uniform(-120, -80), 1),
         snr=round(_random.uniform(0, 15), 1),
-        decoded={"FSM_batt_v": round(_random.uniform(3.0, 4.2), 2)},
+        decoded={
+            "FSM_state": _random.choice(_fsm_states),
+            "FSM_depl": _random.choice([True, False]),
+            "FSM_batt_v": round(_random.uniform(3.0, 4.2), 2),
+            "uptime": _random.randint(100, 100000),
+        },
         source="stress_test",
     )
     packet_store.store_telemetry_batch(pkt_id, [
-        ("FSM_batt_v",  round(_random.uniform(3.0, 4.2), 2), "V"),
-        ("FSM_acc_0",   round(_random.uniform(-1, 1), 3),    "g"),
-        ("light_int_0", round(_random.uniform(0, 1000), 1),   "lux"),
+        ("FSM_batt_v",   round(_random.uniform(3.0, 4.2), 2),   "V"),
+        ("FSM_magn_v_0", round(_random.uniform(-50, 50), 2),     "µT"),
+        ("FSM_av_0",     round(_random.uniform(-10, 10), 3),     "°/s"),
     ])
     return jsonify(ok=True, packet_id=pkt_id)
 

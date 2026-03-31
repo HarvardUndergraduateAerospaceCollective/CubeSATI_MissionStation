@@ -6,12 +6,19 @@
 (function () {
   "use strict";
 
+  // Global error handler — logs to a visible element if present
+  window.addEventListener("error", function (e) {
+    console.error("Dashboard error:", e.message, e.filename, e.lineno);
+    var el = document.getElementById("db-count");
+    if (el) el.textContent = "JS ERROR: " + e.message + " L" + e.lineno;
+  });
+
   // ── Constants ──
   const TRACK_REFRESH_MS = 5_000;    // ground-track poll interval
   const PANEL_REFRESH_MS = 10_000;   // side-panel poll interval
   const STATUS_REFRESH_MS = 1_000;   // HUD status poll interval
   const MET_TICK_MS = 1_000;         // local MET clock tick
-  const PANEL_COLORS = ["#00ccff", "#00ffcc", "#ffcc00", "#ff4400"];
+  const PANEL_COLORS = ["#00ccff", "#00ffcc", "#cc44ff", "#ffcc00", "#ff4400"];
 
   // ── State ──
   let startTime = Date.now();
@@ -105,41 +112,47 @@
   // ──────────────────────────────────────────
 
   const charts = [];
-  for (let i = 0; i < 4; i++) {
-    const ctx = document.getElementById("chart-" + i).getContext("2d");
-    charts.push(new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: [],
-        datasets: [{
-          data: [],
-          borderColor: PANEL_COLORS[i],
-          borderWidth: 1.2,
-          pointRadius: 0,
-          tension: 0.1,
-          fill: false,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: {
-            display: true,
-            title: { display: true, text: "Time (min)", color: "#667788", font: { size: 9, family: "monospace" } },
-            ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
-            grid: { color: "rgba(255,255,255,0.06)" },
-          },
-          y: {
-            display: true,
-            ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
-            grid: { color: "rgba(255,255,255,0.06)" },
+  try {
+    for (let i = 0; i < 5; i++) {
+      const el = document.getElementById("chart-" + i);
+      if (!el) { charts.push(null); continue; }
+      const ctx = el.getContext("2d");
+      charts.push(new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [{
+            data: [],
+            borderColor: PANEL_COLORS[i],
+            borderWidth: 1.2,
+            pointRadius: 0,
+            tension: 0.1,
+            fill: false,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              display: true,
+              title: { display: true, text: "Time (min)", color: "#667788", font: { size: 9, family: "monospace" } },
+              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
+            y: {
+              display: true,
+              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
           },
         },
-      },
-    }));
+      }));
+    }
+  } catch (chartErr) {
+    console.error("Chart init failed:", chartErr);
   }
 
 
@@ -176,12 +189,13 @@
       const data = await fetchJSON("/api/panels");
       data.panels.forEach(function (p, i) {
         const chart = charts[i];
+        if (!chart) return;
         const awaiting = document.getElementById("awaiting-" + i);
         if (p.x.length === 0) {
-          awaiting.classList.remove("hidden");
+          if (awaiting) awaiting.classList.remove("hidden");
           return;
         }
-        awaiting.classList.add("hidden");
+        if (awaiting) awaiting.classList.add("hidden");
         chart.data.labels = p.x;
         chart.data.datasets[0].data = p.y;
         chart.data.datasets[0].borderColor = p.color;
@@ -208,6 +222,31 @@
         "PERIOD: " + s.period_min + " min   " +
         "ORBITS: " + s.n_orbits;
       document.getElementById("db-count").textContent = "DB: " + s.n_pkts + " pkts";
+
+      // FSM state HUD
+      if (s.fsm_state !== undefined) {
+        const stateEl = document.getElementById("fsm-state");
+        const deplEl = document.getElementById("fsm-depl");
+        const uptimeEl = document.getElementById("fsm-uptime");
+        if (stateEl) stateEl.textContent = s.fsm_state || "\u2014";
+        if (deplEl) deplEl.textContent = String(s.fsm_depl ?? "\u2014");
+        if (uptimeEl) {
+          const ut = s.fsm_uptime;
+          if (ut !== "\u2014" && ut !== "" && ut !== undefined) {
+            const secs = Number(ut);
+            if (!isNaN(secs)) {
+              const hh = String(Math.floor(secs / 3600)).padStart(2, "0");
+              const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+              const ss = String(Math.floor(secs % 60)).padStart(2, "0");
+              uptimeEl.textContent = hh + ":" + mm + ":" + ss;
+            } else {
+              uptimeEl.textContent = String(ut);
+            }
+          } else {
+            uptimeEl.textContent = "\u2014";
+          }
+        }
+      }
     } catch (e) {
       // Silently ignore — will retry next tick
     }
@@ -235,6 +274,109 @@
 
 
   // ──────────────────────────────────────────
+  // FSM State Timeline Chart
+  // ──────────────────────────────────────────
+
+  const fsmCtx = document.getElementById("fsm-timeline");
+  let fsmChart = null;
+  try { if (fsmCtx) {
+    fsmChart = new Chart(fsmCtx.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          borderColor: "#00ddff",
+          backgroundColor: "rgba(0,221,255,0.1)",
+          borderWidth: 1.5,
+          pointRadius: 3,
+          pointBackgroundColor: "#00ddff",
+          stepped: "before",
+          fill: true,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                return fsmChart._stateLabels ? fsmChart._stateLabels[ctx.dataIndex] || "" : "";
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            display: true,
+            title: { display: true, text: "Packet #", color: "#667788", font: { size: 8, family: "monospace" } },
+            ticks: { color: "#667788", font: { size: 7 }, maxTicksLimit: 8 },
+            grid: { color: "rgba(255,255,255,0.06)" },
+          },
+          y: {
+            display: true,
+            title: { display: true, text: "State", color: "#667788", font: { size: 8, family: "monospace" } },
+            ticks: {
+              color: "#667788",
+              font: { size: 7 },
+              callback: function (value) {
+                return fsmChart._stateNames ? (fsmChart._stateNames[value] || value) : value;
+              },
+            },
+            grid: { color: "rgba(255,255,255,0.06)" },
+          },
+        },
+      },
+    });
+    fsmChart._stateLabels = [];
+    fsmChart._stateNames = {};
+  } } catch (fsmErr) {
+    console.error("FSM chart init failed:", fsmErr);
+  }
+
+  async function refreshFSM() {
+    if (!fsmChart) return;
+    try {
+      const data = await fetchJSON("/api/fsm");
+      const awaiting = document.getElementById("awaiting-fsm");
+      if (!data.history || data.history.length === 0) {
+        if (awaiting) awaiting.classList.remove("hidden");
+        return;
+      }
+      if (awaiting) awaiting.classList.add("hidden");
+
+      // Build unique state → numeric index mapping
+      const stateSet = [...new Set(data.history.map(h => String(h.fsm_state)))];
+      const stateMap = {};
+      stateSet.forEach((s, i) => { stateMap[s] = i; });
+
+      const labels = data.history.map((_, i) => i + 1);
+      const values = data.history.map(h => stateMap[String(h.fsm_state)]);
+      const stateLabels = data.history.map(h =>
+        "State: " + h.fsm_state + "  Depl: " + h.fsm_depl + "  Uptime: " + h.uptime
+      );
+
+      // Reverse map for Y-axis labels
+      const stateNames = {};
+      for (const [name, idx] of Object.entries(stateMap)) {
+        stateNames[idx] = name;
+      }
+
+      fsmChart._stateLabels = stateLabels;
+      fsmChart._stateNames = stateNames;
+      fsmChart.data.labels = labels;
+      fsmChart.data.datasets[0].data = values;
+      fsmChart.update();
+    } catch (e) {
+      console.error("FSM fetch failed:", e);
+    }
+  }
+
+
+  // ──────────────────────────────────────────
   // SocketIO live push (optional)
   // ──────────────────────────────────────────
 
@@ -245,6 +387,7 @@
         document.getElementById("db-count").textContent = "DB: " + data.count + " pkts";
         // Refresh panels immediately when new data arrives
         refreshPanels();
+        refreshFSM();
       });
     } catch (e) {
       // SocketIO not available — no problem, we poll
@@ -265,12 +408,14 @@
   refreshTrack();
   refreshPanels();
   refreshStatus();
+  refreshFSM();
 
   // Periodic refreshes
   setInterval(refreshTrack, TRACK_REFRESH_MS);
   setInterval(refreshPanels, PANEL_REFRESH_MS);
   setInterval(refreshStatus, STATUS_REFRESH_MS);
   setInterval(tickMET, MET_TICK_MS);
+  setInterval(refreshFSM, PANEL_REFRESH_MS);
 
   // Fix map size after layout settles
   setTimeout(function () { map.invalidateSize(); }, 200);

@@ -10,7 +10,7 @@
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin="anonymous" />
 
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ cache_bust }}">
 </head>
 <body>
 
@@ -39,6 +39,11 @@
         <canvas id="chart-1"></canvas>
         <div class="awaiting" id="awaiting-1">AWAITING DATA</div>
       </div>
+      <div class="panel-box" id="panel-2">
+        <div class="panel-title" id="panel-title-2">MAGNETOMETER</div>
+        <canvas id="chart-2"></canvas>
+        <div class="awaiting" id="awaiting-2">AWAITING DATA</div>
+      </div>
     </div>
 
     <!-- Center map -->
@@ -51,18 +56,36 @@
 
     <!-- Right panels -->
     <div class="side-panels right-panels">
-      <div class="panel-box" id="panel-2">
-        <div class="panel-title" id="panel-title-2">TEMPERATURE</div>
-        <canvas id="chart-2"></canvas>
-        <div class="awaiting" id="awaiting-2">AWAITING DATA</div>
-      </div>
       <div class="panel-box" id="panel-3">
-        <div class="panel-title" id="panel-title-3">POWER</div>
+        <div class="panel-title" id="panel-title-3">GYROSCOPE</div>
         <canvas id="chart-3"></canvas>
         <div class="awaiting" id="awaiting-3">AWAITING DATA</div>
       </div>
+      <div class="panel-box" id="panel-4">
+        <div class="panel-title" id="panel-title-4">POWER</div>
+        <canvas id="chart-4"></canvas>
+        <div class="awaiting" id="awaiting-4">AWAITING DATA</div>
+      </div>
     </div>
 
+  </div>
+
+  <!-- ═══ FSM State Panel ═══ -->
+  <div id="fsm-bar">
+    <div id="fsm-state-info">
+      <span class="fsm-label">FSM:</span>
+      <span id="fsm-state" class="fsm-value">—</span>
+      <span class="fsm-sep">│</span>
+      <span class="fsm-label">DEPL:</span>
+      <span id="fsm-depl" class="fsm-value">—</span>
+      <span class="fsm-sep">│</span>
+      <span class="fsm-label">UPTIME:</span>
+      <span id="fsm-uptime" class="fsm-value">—</span>
+    </div>
+    <div id="fsm-timeline-container">
+      <canvas id="fsm-timeline"></canvas>
+      <div class="awaiting" id="awaiting-fsm">AWAITING FSM DATA</div>
+    </div>
   </div>
 
   <!-- ═══ Bottom status bar ═══ -->
@@ -81,6 +104,6 @@
   <!-- Socket.IO (only active in live mode) -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-  <script src="/static/dashboard.js"></script>
+  <script src="/static/dashboard.js?v={{ cache_bust }}"></script>
 </body>
 </html>

@@ -33,6 +33,7 @@ backups
 
     aesthetics:
 
+    #TODO: add small shaded region around "Harvard" to show line-of-sight to our SEC roof ground station?
     #TODO: rework matplot lib to be "true" fullscreen, without border or bars, just the plot
 
 

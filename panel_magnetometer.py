@@ -1,25 +1,25 @@
 """
-Panel: Gyroscope (Angular Velocity)
-Displays satellite angular velocity (X-axis) telemetry over time.
-Data source: packet_store telemetry table, key "FSM_av_0" (populated by tinygs_mqtt).
+Panel: Magnetometer
+Displays satellite magnetometer (X-axis) telemetry over time.
+Data source: packet_store telemetry table, key "FSM_magn_v_0" (populated by tinygs_mqtt).
 """
 
 import numpy as np
 import packet_store
 
-TITLE          = "GYROSCOPE"
-Y_LABEL        = "\u00b0/s"
+TITLE          = "MAGNETOMETER"
+Y_LABEL        = "\u00b5T"
 X_LABEL        = "Time (min)"
-COLOR          = "#ffcc00"
+COLOR          = "#cc44ff"
 SOURCE         = "telemetry"
-TELEMETRY_KEY  = "FSM_av_0"
+TELEMETRY_KEY  = "FSM_magn_v_0"
 
 
 def compute():
-    """Return (time_minutes, values) arrays from stored telemetry.
+    """Return (time_minutes, magnetometer_uT) arrays from stored telemetry.
 
-    Queries the telemetry table for TELEMETRY_KEY.  Returns empty arrays
-    when no matching readings exist yet.
+    Queries the telemetry table for FSM_magn_v_0.  Returns empty arrays
+    when no readings exist yet.
     """
     rows = packet_store.telemetry_series(TELEMETRY_KEY)
     if not rows:

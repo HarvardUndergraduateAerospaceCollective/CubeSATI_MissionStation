@@ -200,6 +200,66 @@ def telemetry_series(key: str, since: Optional[str] = None,
         return [dict(row) for row in cur.fetchall()]
 
 
+def fsm_state_history(n: int = 500) -> list[dict]:
+    """Return FSM state timeline from decoded packet JSON.
+
+    Returns a list of dicts with keys: received_at, fsm_state, fsm_depl,
+    uptime.  Only packets with a valid decoded_json containing FSM_state
+    are included.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT received_at, decoded_json FROM packets "
+            "WHERE decoded_json IS NOT NULL "
+            "ORDER BY received_at DESC LIMIT ?",
+            (n,),
+        )
+        rows = cur.fetchall()
+
+    results = []
+    for row in reversed(rows):  # oldest first
+        try:
+            decoded = json.loads(row["decoded_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if "FSM_state" not in decoded:
+            continue
+        results.append({
+            "received_at": row["received_at"],
+            "fsm_state": decoded.get("FSM_state", ""),
+            "fsm_depl": decoded.get("FSM_depl", ""),
+            "fsm_pay_set": decoded.get("FSM_pay_set", ""),
+            "uptime": decoded.get("uptime", ""),
+        })
+    return results
+
+
+def latest_fsm_state() -> Optional[dict]:
+    """Return the most recent FSM state info, or None if no data."""
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT decoded_json FROM packets "
+            "WHERE decoded_json IS NOT NULL "
+            "ORDER BY received_at DESC LIMIT 20"
+        )
+        for row in cur.fetchall():
+            try:
+                decoded = json.loads(row["decoded_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if "FSM_state" in decoded:
+                return {
+                    "fsm_state": decoded.get("FSM_state", ""),
+                    "fsm_depl": decoded.get("FSM_depl", ""),
+                    "fsm_pay_set": decoded.get("FSM_pay_set", ""),
+                    "fsm_pan_light": decoded.get("FSM_pan_light", ""),
+                    "fsm_payl_light": decoded.get("FSM_payl_light", ""),
+                    "fsm_best_dir": decoded.get("FSM_best_dir", ""),
+                    "uptime": decoded.get("uptime", ""),
+                }
+    return None
+
+
 def all_telemetry_keys() -> list[str]:
     """List distinct telemetry keys stored in the database."""
     with _cursor() as cur:

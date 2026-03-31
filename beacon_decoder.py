@@ -19,14 +19,13 @@ Usage::
 
 Key-map generation
 ------------------
-The OBC firmware hashes field names with ``hash(key) & 0xFFFFFFFF``.
-**CircuitPython's hash() differs from CPython's**, so the key map MUST be
-generated on the same interpreter the satellite runs (CircuitPython) or
-captured from a ``generate_key_mapping()`` call on the flight hardware.
+The OBC firmware hashes field names with CircuitPython's ``hash(key) & 0xFFFFFFFF``
+which uses the **djb2** algorithm (deterministic, 16-bit).  ``KEY_MAP`` below is
+pre-populated with the correct djb2 hashes for all current beacon fields.
 
-Populate ``KEY_MAP`` below with those values, or call
-``build_cpython_key_map()`` if the satellite happens to use CPython-compatible
-hashes (useful for ground-station testing).
+If the OBC firmware adds or renames fields, use ``_circuitpython_hash(new_key)``
+to compute the hash and update ``KEY_MAP``.  For local testing with CPython-
+generated packets, pass ``build_cpython_key_map()`` as the ``key_map`` argument.
 """
 
 import struct
@@ -107,22 +106,49 @@ KNOWN_BEACON_KEYS: list[str] = [
 # ──────────────────────────────────────────────
 # KEY MAP  —  hash(key) & 0xFFFFFFFF  →  key name
 # ──────────────────────────────────────────────
-# IMPORTANT: Populate this dict with the ACTUAL hashes produced by the
-# satellite's CircuitPython interpreter.  You can obtain them by running
-# beacon.generate_key_mapping() on the flight hardware or an identical
-# CircuitPython build, then pasting the result here.
+# These are the CircuitPython djb2 hashes (seed=5381, Q_HASH_MASK=0xFFFF)
+# for every field in KNOWN_BEACON_KEYS.  CircuitPython's hash() differs from
+# CPython's (SipHash) — these values are deterministic and were computed by
+# replicating the djb2 algorithm from CircuitPython's qstr_compute_hash().
 #
-# Format:  { 0xDEADBEEF: "field_name", ... }
-#
-# If this map is empty the decoder will still work — fields will be labelled
-# "field_<hash_hex>" and you can cross-reference them with positional order.
+# *** If the OBC firmware (OBC_v5d) changes which fields are transmitted ***
+# *** in beacon.py _build_state / _add_system_info, you MUST regenerate ***
+# *** these hashes. Run _circuitpython_hash() below on every new key.   ***
 KEY_MAP: dict[int, str] = {
-    # ── PASTE CircuitPython hashes here ──
-    # Example (NOT real values — replace with actual hashes):
-    # 0x1A2B3C4D: "name",
-    # 0x5E6F7A8B: "FSM_state",
-    # ...
+    0x000075A2: "name",
+    0x0000FC95: "FSM_state",
+    0x0000473F: "FSM_depl",
+    0x0000FE57: "FSM_pay_set",
+    0x000058DC: "FSM_pan_light",
+    0x000021A7: "FSM_payl_light",
+    0x000090A2: "FSM_best_dir",
+    0x00004761: "FSM_magn_v_0",
+    0x00004760: "FSM_magn_v_1",
+    0x00004763: "FSM_magn_v_2",
+    0x0000E39A: "FSM_av_0",
+    0x0000E39B: "FSM_av_1",
+    0x0000E398: "FSM_av_2",
+    0x000093AC: "FSM_acc_0",
+    0x000093AD: "FSM_acc_1",
+    0x000093AE: "FSM_acc_2",
+    0x000097E8: "FSM_batt_v",
+    0x0000C1F0: "time",
+    0x00005BD5: "uptime",
 }
+
+
+def _circuitpython_hash(s: str) -> int:
+    """Replicate CircuitPython's qstr_compute_hash (djb2, 16-bit).
+
+    Use this to compute the hash for any new beacon field added to the
+    OBC firmware, then add the result to KEY_MAP above.
+    """
+    h = 5381
+    for ch in s.encode("utf-8"):
+        h = ((h << 5) + h) ^ ch
+        h &= 0xFFFFFFFF
+    h &= 0xFFFF
+    return h if h != 0 else 1
 
 
 def build_cpython_key_map() -> dict[int, str]:
@@ -134,7 +160,8 @@ def build_cpython_key_map() -> dict[int, str]:
     .. warning::
         CPython hashes differ from CircuitPython hashes.  This map is only
         valid when decoding data produced by CPython (e.g. a ground-station
-        test harness).  For real satellite data use the CircuitPython hashes.
+        test harness).  For real satellite data use the CircuitPython hashes
+        in ``KEY_MAP`` above.
     """
     return {hash(k) & 0xFFFFFFFF: k for k in KNOWN_BEACON_KEYS}
 
@@ -251,7 +278,7 @@ def decode_beacon(
         beacon fields.
     """
     if key_map is None:
-        key_map = KEY_MAP if KEY_MAP else build_cpython_key_map()
+        key_map = KEY_MAP
 
     header_info: dict = {}
     payload = raw
