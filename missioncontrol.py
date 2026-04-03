@@ -44,6 +44,7 @@ _PANEL_LAYOUT = [
 _TRACK_CMAP = LinearSegmentedColormap.from_list(
     "orbit", ["#00ccff", "#00ffcc", "#ffcc00", "#ff4400"]
 )
+_TRACK_WINDOW_ORBITS = 1.5
 
 
 # ──────────────────────────────────────────────
@@ -252,9 +253,15 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
 
     def _draw_track(n_now):
         _clear_track(track_artists)
+
+        # Keep only a rolling tail to avoid map clutter during long live runs.
+        draw_orbits = min(n_now, _TRACK_WINDOW_ORBITS)
+        start_orbit = max(n_now - draw_orbits, 0.0)
         lon, lat, _ = visualizer.ground_track(
             sma, ecc, inc, raan, argp,
-            n_orbits=n_now, n_points=max(int(n_now * 1500), 500),
+            n_orbits=draw_orbits,
+            n_points=max(int(draw_orbits * 1500), 500),
+            start_orbit=start_orbit,
         )
         _add_track_segments(ax_map, track_artists, lon, lat)
         _update_markers_and_hud(lon, lat, n_now)

@@ -28,6 +28,7 @@ import panel_signal
 import panel_temperature
 import panel_power
 import panel_magnetometer
+import panel_best_dir
 import packet_store
 
 log = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ def _init_orbital():
 # Head-start: show 1 orbit of history on first load, then grow in real time.
 HEAD_START_ORBITS = 1.0
 SPEED_FACTOR = 1.0       # 1.0 = real-time (1 orbital period → 1 new orbit drawn)
+TRACK_WINDOW_ORBITS = 1.1
 
 # Per-panel sliding window in minutes (None = show all data).
 # Tune these once you know what looks right for each panel.
@@ -114,8 +116,10 @@ def index():
 @app.route("/api/track")
 def api_track():
     """Return ground-track polyline as JSON arrays of [lat, lon] pairs."""
-    n = _current_n_orbits()
-    n_points = int(request.args.get("n_points", max(int(n * 500), 200)))
+    n_total = _current_n_orbits()
+    n_draw = min(n_total, TRACK_WINDOW_ORBITS)
+    start_orbit = max(n_total - n_draw, 0.0)
+    n_points = int(request.args.get("n_points", max(int(n_draw * 500), 200)))
 
     with _state_lock:
         sma, ecc, inc = _state["sma"], _state["ecc"], _state["inc"]
@@ -123,7 +127,9 @@ def api_track():
 
     lon, lat, t_sec = visualizer.ground_track(
         sma, ecc, inc, raan, argp,
-        n_orbits=n, n_points=n_points,
+        n_orbits=n_draw,
+        n_points=n_points,
+        start_orbit=start_orbit,
     )
 
     # Split at ±180° wrap-arounds for Leaflet polyline segments
@@ -239,6 +245,12 @@ def api_fsm():
     return jsonify(history=history)
 
 
+@app.route("/api/best_dir")
+def api_best_dir():
+    """Return best-direction distribution for the doughnut chart."""
+    return jsonify(panel_best_dir.compute())
+
+
 # ──────────────────────────────────────────────
 # Test-only endpoint: simulate a packet write (for stress testing)
 # ──────────────────────────────────────────────
@@ -268,6 +280,7 @@ def api_test_write():
         ("FSM_batt_v",   round(_random.uniform(3.0, 4.2), 2),   "V"),
         ("FSM_magn_v_0", round(_random.uniform(-50, 50), 2),     "µT"),
         ("FSM_av_0",     round(_random.uniform(-10, 10), 3),     "°/s"),
+        ("FSM_best_dir", _random.choices([0, 1, 2, 3, -1], weights=[4, 2, 3, 2, 1])[0], ""),
     ])
     return jsonify(ok=True, packet_id=pkt_id)
 

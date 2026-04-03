@@ -52,6 +52,7 @@ def ground_track(
     arg_periapsis: float,
     n_orbits: float = 3,
     n_points: int = 3000,
+    start_orbit: float = 0.0,
 ):
     """
     Compute sub-satellite ground track.
@@ -62,7 +63,8 @@ def ground_track(
     omega = RAD(arg_periapsis)
 
     period = orbital_period(semi_major_axis)
-    t = np.linspace(0, n_orbits * period, n_points)
+    start_t = max(start_orbit, 0.0) * period
+    t = np.linspace(start_t, start_t + n_orbits * period, n_points)
     M = 2 * np.pi / period * t
     E = kepler_equation(M, eccentricity)
 

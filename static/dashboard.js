@@ -338,7 +338,6 @@
   }
 
   async function refreshFSM() {
-    if (!fsmChart) return;
     try {
       const data = await fetchJSON("/api/fsm");
       const awaiting = document.getElementById("awaiting-fsm");
@@ -347,6 +346,8 @@
         return;
       }
       if (awaiting) awaiting.classList.add("hidden");
+
+      if (!fsmChart) return;
 
       // Build unique state → numeric index mapping
       const stateSet = [...new Set(data.history.map(h => String(h.fsm_state)))];
@@ -377,6 +378,82 @@
 
 
   // ──────────────────────────────────────────
+  // Best Direction Doughnut Chart
+  // ──────────────────────────────────────────
+
+  const bestDirCtx = document.getElementById("chart-best-dir");
+  let bestDirChart = null;
+  try { if (bestDirCtx) {
+    bestDirChart = new Chart(bestDirCtx.getContext("2d"), {
+      type: "doughnut",
+      data: {
+        labels: ["+Y", "\u2212X", "\u2212Y", "+X", "N/A"],
+        datasets: [{
+          data: [0, 0, 0, 0, 0],
+          backgroundColor: ["#00ccff", "#cc44ff", "#ffcc00", "#ff4400", "#334455"],
+          borderColor: "#0a1628",
+          borderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        cutout: "55%",
+        plugins: {
+          legend: {
+            display: true,
+            position: "bottom",
+            labels: {
+              color: "#8899aa",
+              font: { size: 9, family: "monospace" },
+              boxWidth: 10,
+              padding: 6,
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                const total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                const pct = total > 0 ? Math.round(ctx.raw / total * 100) : 0;
+                return ctx.label + ": " + ctx.raw + " (" + pct + "%)";
+              },
+            },
+          },
+        },
+      },
+    });
+  } } catch (bdErr) {
+    console.error("Best-dir chart init failed:", bdErr);
+  }
+
+  async function refreshBestDir() {
+    if (!bestDirChart) return;
+    try {
+      const data = await fetchJSON("/api/best_dir");
+      const awaiting = document.getElementById("awaiting-best-dir");
+      const total = data.counts.reduce(function (a, b) { return a + b; }, 0);
+      if (total === 0) {
+        if (awaiting) awaiting.classList.remove("hidden");
+        return;
+      }
+      if (awaiting) awaiting.classList.add("hidden");
+
+      bestDirChart.data.labels = data.labels;
+      bestDirChart.data.datasets[0].data = data.counts;
+      bestDirChart.data.datasets[0].backgroundColor = data.colors;
+      bestDirChart.update();
+
+      // Update center label with current direction
+      const labelEl = document.getElementById("best-dir-current");
+      if (labelEl) labelEl.textContent = data.latest_label;
+    } catch (e) {
+      console.error("Best-dir fetch failed:", e);
+    }
+  }
+
+
+  // ──────────────────────────────────────────
   // SocketIO live push (optional)
   // ──────────────────────────────────────────
 
@@ -388,6 +465,7 @@
         // Refresh panels immediately when new data arrives
         refreshPanels();
         refreshFSM();
+        refreshBestDir();
       });
     } catch (e) {
       // SocketIO not available — no problem, we poll
@@ -409,6 +487,7 @@
   refreshPanels();
   refreshStatus();
   refreshFSM();
+  refreshBestDir();
 
   // Periodic refreshes
   setInterval(refreshTrack, TRACK_REFRESH_MS);
@@ -416,6 +495,7 @@
   setInterval(refreshStatus, STATUS_REFRESH_MS);
   setInterval(tickMET, MET_TICK_MS);
   setInterval(refreshFSM, PANEL_REFRESH_MS);
+  setInterval(refreshBestDir, PANEL_REFRESH_MS);
 
   // Fix map size after layout settles
   setTimeout(function () { map.invalidateSize(); }, 200);
