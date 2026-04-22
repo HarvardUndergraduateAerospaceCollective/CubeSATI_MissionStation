@@ -31,7 +31,7 @@ body {
   height: 38px;
 }
 
-.hud-item { font-size: 13px; font-weight: bold; }
+.hud-item { font-size: 26px; font-weight: bold; }
 .hud-cyan  { color: #00ddff; }
 .hud-red   { color: #ff4444; }
 .hud-grey  { color: #556666; }
@@ -196,7 +196,7 @@ body {
   padding: 4px 20px;
   background: #0a1628;
   border-top: 1px solid #1a3a50;
-  font-size: 22px;
+  font-size: 12px;
   color: #446688;
   flex-shrink: 0;
   height: 28px;
@@ -233,13 +233,13 @@ body {
 
 .fsm-label {
   color: #667788;
-  font-size: 20px;
+  font-size: 12px;
   font-weight: bold;
 }
 
 .fsm-value {
   color: #00ddff;
-  font-size: 22px;
+  font-size: 12px;
   font-weight: bold;
 }
 
