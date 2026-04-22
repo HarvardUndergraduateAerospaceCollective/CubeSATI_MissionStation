@@ -139,12 +139,12 @@
             x: {
               display: true,
               title: { display: true, text: "Time (min)", color: "#667788", font: { size: 9, family: "monospace" } },
-              ticks: { color: "#667788", font: { size: 16 }, maxTicksLimit: 5 },
+              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
               grid: { color: "rgba(255,255,255,0.06)" },
             },
             y: {
               display: true,
-              ticks: { color: "#667788", font: { size: 16 }, maxTicksLimit: 5 },
+              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
               grid: { color: "rgba(255,255,255,0.06)" },
             },
           },
@@ -312,13 +312,13 @@
         scales: {
           x: {
             display: true,
-            title: { display: true, text: "Packet #", color: "#667788", font: { size: 16, family: "monospace" } },
+            title: { display: true, text: "Packet #", color: "#667788", font: { size: 8, family: "monospace" } },
             ticks: { color: "#667788", font: { size: 7 }, maxTicksLimit: 8 },
             grid: { color: "rgba(255,255,255,0.06)" },
           },
           y: {
             display: true,
-            title: { display: true, text: "State", color: "#667788", font: { size: 16, family: "monospace" } },
+            title: { display: true, text: "State", color: "#667788", font: { size: 8, family: "monospace" } },
             ticks: {
               color: "#667788",
               font: { size: 7 },
