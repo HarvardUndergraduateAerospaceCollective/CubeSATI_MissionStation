@@ -19,6 +19,7 @@
   const STATUS_REFRESH_MS = 1_000;   // HUD status poll interval
   const MET_TICK_MS = 1_000;         // local MET clock tick
   const PANEL_COLORS = ["#00ccff", "#00ffcc", "#cc44ff", "#ffcc00", "#ff4400"];
+  const FSM_PLACEHOLDER = "AWATING DATA";
 
   // ── State ──
   let startTime = Date.now();
@@ -166,6 +167,10 @@
     return resp.json();
   }
 
+  function isMissingFSMValue(v) {
+    return v === undefined || v === null || v === "" || v === "—";
+  }
+
   async function refreshTrack() {
     try {
       const data = await fetchJSON("/api/track");
@@ -228,11 +233,19 @@
         const stateEl = document.getElementById("fsm-state");
         const deplEl = document.getElementById("fsm-depl");
         const uptimeEl = document.getElementById("fsm-uptime");
-        if (stateEl) stateEl.textContent = s.fsm_state || "\u2014";
-        if (deplEl) deplEl.textContent = String(s.fsm_depl ?? "\u2014");
+        if (stateEl) {
+          stateEl.textContent = isMissingFSMValue(s.fsm_state)
+            ? FSM_PLACEHOLDER
+            : String(s.fsm_state);
+        }
+        if (deplEl) {
+          deplEl.textContent = isMissingFSMValue(s.fsm_depl)
+            ? FSM_PLACEHOLDER
+            : String(s.fsm_depl);
+        }
         if (uptimeEl) {
           const ut = s.fsm_uptime;
-          if (ut !== "\u2014" && ut !== "" && ut !== undefined) {
+          if (!isMissingFSMValue(ut)) {
             const secs = Number(ut);
             if (!isNaN(secs)) {
               const hh = String(Math.floor(secs / 3600)).padStart(2, "0");
@@ -243,7 +256,7 @@
               uptimeEl.textContent = String(ut);
             }
           } else {
-            uptimeEl.textContent = "\u2014";
+            uptimeEl.textContent = FSM_PLACEHOLDER;
           }
         }
       }
