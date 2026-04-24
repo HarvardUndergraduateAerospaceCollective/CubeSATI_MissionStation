@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Backups
+backups/
+
+# TLE cache
+.tle_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
