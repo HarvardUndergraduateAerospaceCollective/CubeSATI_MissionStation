@@ -96,12 +96,12 @@ body {
   flex-shrink: 0;
 }
 
-#panel-title-0 { color: #00ccff; }   /* altitude     */
+#panel-title-0 { color: #00ffcc; }   /* altitude     */
 #panel-title-1 { color: #00ffcc; }   /* signal       */
-#panel-title-2 { color: #cc44ff; }   /* magnetometer */
-#panel-title-3 { color: #ffcc00; }   /* gyroscope    */
-#panel-title-4 { color: #ff4400; }   /* power        */
-#panel-title-best-dir { color: #ff66aa; }  /* best dir */
+#panel-title-2 { color: #00ffcc; }   /* magnetometer */
+#panel-title-3 { color: #00ffcc; }   /* gyroscope    */
+#panel-title-4 { color: #00ffcc; }   /* power        */
+#panel-title-best-dir { color: #00ffcc; }  /* best dir */
 
 /* Chart canvas wrapper — constrain so Chart.js doesn't blow out */
 .panel-box canvas {
