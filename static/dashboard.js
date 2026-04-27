@@ -129,14 +129,13 @@
       .pathPointLng(function (p) { return p[1]; })
       .pathColor(function () { return "#33ff00"; })
       .pathStroke(1.5)
-      .pathDashLength(0.05)
-      .pathDashGap(0.02)
-      .pathDashAnimateTime(350000)
+      .pathDashLength(1)
+      .pathDashGap(0)
       .pointsData([])
       .pointColor(function () { return "#ff2200"; })
       .pointAltitude(0.02)
       .pointRadius(0.4)
-      .pointOfView({ lat: 20, lng: 74, altitude: 2 });
+      .pointOfView({ lat: 20, lng: -74, altitude: 2 });
 
     var ro = new ResizeObserver(function () {
       globeViz.width(el.clientWidth).height(el.clientHeight);
@@ -296,6 +295,54 @@
 
     if (!pred || typeof pred.az_deg !== "number" || typeof pred.el_deg !== "number") return;
 
+    const path = Array.isArray(pred.path) ? pred.path : [];
+    if (pred.visible && path.length > 1) {
+      const pathPts = [];
+      for (const pt of path) {
+        const azPt = Number(pt.az);
+        const elPt = Number(pt.el);
+        if (!isFinite(azPt) || !isFinite(elPt)) continue;
+
+        const elClamped = Math.max(0, Math.min(90, elPt));
+        const rrPt = ((90 - elClamped) / 90) * radius;
+        const azPtRad = azPt * Math.PI / 180;
+        const xPt = cx + rrPt * Math.sin(azPtRad);
+        const yPt = cy - rrPt * Math.cos(azPtRad);
+        pathPts.push({ x: xPt, y: yPt });
+      }
+
+      if (pathPts.length > 1) {
+        // Dim-to-bright path: AOS -> LOS gradient to show pass direction.
+        const denom = Math.max(1, pathPts.length - 1);
+        for (let i = 1; i < pathPts.length; i++) {
+          const t = i / denom;
+          const r = Math.round(255 + (51 - 255) * t);
+          const g = Math.round(176 + (255 - 176) * t);
+          const alpha = 0.25 + 0.75 * t;
+          const width = 1.2 + 1.4 * t;
+          approachCtx.strokeStyle = "rgba(" + r + ", " + g + ", 0, " + alpha.toFixed(3) + ")";
+          approachCtx.lineWidth = width;
+          approachCtx.beginPath();
+          approachCtx.moveTo(pathPts[i - 1].x, pathPts[i - 1].y);
+          approachCtx.lineTo(pathPts[i].x, pathPts[i].y);
+          approachCtx.stroke();
+        }
+
+        const startPt = pathPts[0];
+        const endPt = pathPts[pathPts.length - 1];
+        approachCtx.fillStyle = "rgba(255, 176, 0, 0.55)";
+        approachCtx.beginPath();
+        approachCtx.arc(startPt.x, startPt.y, 2.5, 0, Math.PI * 2);
+        approachCtx.fill();
+
+        approachCtx.fillStyle = "#33ff00";
+        approachCtx.beginPath();
+        approachCtx.arc(endPt.x, endPt.y, 3.5, 0, Math.PI * 2);
+        approachCtx.fill();
+      }
+    }
+
+    // Mark closest approach point.
     const az = pred.az_deg;
     const el = pred.el_deg;
     const clampedEl = Math.max(0, Math.min(90, el));
@@ -304,14 +351,7 @@
     const px = cx + rr * Math.sin(azRad);
     const py = cy - rr * Math.cos(azRad);
 
-    const color = el >= 0 ? "#33ff00" : "#ff6600";
-    approachCtx.strokeStyle = color;
-    approachCtx.lineWidth = 2;
-    approachCtx.beginPath();
-    approachCtx.moveTo(cx, cy);
-    approachCtx.lineTo(px, py);
-    approachCtx.stroke();
-
+    const color = pred.visible ? "#33ff00" : "#ff6600";
     approachCtx.fillStyle = color;
     approachCtx.beginPath();
     approachCtx.arc(px, py, 4.5, 0, Math.PI * 2);
@@ -625,26 +665,41 @@
       const data = await fetchJSON("/api/harvard_approach");
       if (!data || typeof data.az_deg !== "number" || typeof data.el_deg !== "number") {
         if (awaiting) awaiting.classList.remove("hidden");
+        if (awaiting) awaiting.textContent = "AWAITING DATA";
         if (approachMeta) approachMeta.textContent = "AWAITING DATA";
         lastApproach = null;
         drawApproachPolar(null);
         return;
       }
-
-      if (awaiting) awaiting.classList.add("hidden");
       lastApproach = data;
       drawApproachPolar(lastApproach);
 
       if (approachMeta) {
-        approachMeta.textContent =
-          "AZ " + data.az_deg.toFixed(1) + "°  " +
-          "EL " + data.el_deg.toFixed(1) + "°  " +
-          "ETA " + formatEta(data.eta_sec) + "  " +
-          "RNG " + data.slant_range_km.toFixed(1) + " km";
+        if (data.visible) {
+          approachMeta.textContent =
+            "AOS " + formatEta(data.pass_start_eta_sec) + "  " +
+            "CPA " + formatEta(data.eta_sec) + "  " +
+            "LOS " + formatEta(data.pass_end_eta_sec) + "  " +
+            "MIN " + data.slant_range_km.toFixed(1) + " km";
+        } else {
+          approachMeta.textContent =
+            "NO LOS  |  NEAREST ETA " + formatEta(data.eta_sec) +
+            "  EL " + data.el_deg.toFixed(1) + "°";
+        }
+      }
+
+      if (awaiting) {
+        if (data.visible) {
+          awaiting.classList.add("hidden");
+        } else {
+          awaiting.textContent = "NO LINE OF SIGHT";
+          awaiting.classList.remove("hidden");
+        }
       }
     } catch (e) {
       console.error("Harvard approach fetch failed:", e);
       if (awaiting) awaiting.classList.remove("hidden");
+      if (awaiting) awaiting.textContent = "AWAITING DATA";
       if (approachMeta) approachMeta.textContent = "AWAITING DATA";
       lastApproach = null;
       drawApproachPolar(null);

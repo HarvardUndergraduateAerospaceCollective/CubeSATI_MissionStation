@@ -94,6 +94,7 @@ PANEL_WINDOWS = {
 
 HARVARD_LAT = 42.3736
 HARVARD_LON = -71.1097
+HARVARD_GS_ALT_M = (7 * 10 + 15) * 0.3048
 HARVARD_LOOKAHEAD_ORBITS = 2.0
 HARVARD_POINTS_PER_ORBIT = 1200
 
@@ -125,14 +126,14 @@ def _central_angle_deg(lat_deg: np.ndarray, lon_deg: np.ndarray,
 
 def _observer_altaz(obs_lat_deg: float, obs_lon_deg: float,
                     sat_lat_deg: float, sat_lon_deg: float,
-                    sat_alt_km: float):
+                    sat_alt_km: float, obs_alt_m: float = 0.0):
     """Convert satellite geodetic position to observer azimuth/elevation/range."""
     obs_lat = np.radians(obs_lat_deg)
     obs_lon = np.radians(obs_lon_deg)
     sat_lat = np.radians(sat_lat_deg)
     sat_lon = np.radians(sat_lon_deg)
 
-    obs_r = visualizer.R_EARTH
+    obs_r = visualizer.R_EARTH + obs_alt_m
     sat_r = visualizer.R_EARTH + sat_alt_km * 1000.0
 
     obs_x = obs_r * np.cos(obs_lat) * np.cos(obs_lon)
@@ -169,14 +170,14 @@ def _observer_altaz(obs_lat_deg: float, obs_lon_deg: float,
 
 def _observer_altaz_many(obs_lat_deg: float, obs_lon_deg: float,
                          sat_lat_deg: np.ndarray, sat_lon_deg: np.ndarray,
-                         sat_alt_km: np.ndarray):
+                         sat_alt_km: np.ndarray, obs_alt_m: float = 0.0):
     """Vectorized observer azimuth/elevation/slant-range for many satellite points."""
     obs_lat = np.radians(obs_lat_deg)
     obs_lon = np.radians(obs_lon_deg)
     sat_lat = np.radians(sat_lat_deg)
     sat_lon = np.radians(sat_lon_deg)
 
-    obs_r = visualizer.R_EARTH
+    obs_r = visualizer.R_EARTH + obs_alt_m
     sat_r = visualizer.R_EARTH + sat_alt_km * 1000.0
 
     obs_x = obs_r * np.cos(obs_lat) * np.cos(obs_lon)
@@ -361,7 +362,7 @@ def api_best_dir():
 
 @app.route("/api/harvard_approach")
 def api_harvard_approach():
-    """Return alt/az of the next closest slant-range approach to Harvard."""
+    """Return alt/az pass-arc around the next closest slant-range approach."""
     n_now = _current_n_orbits()
     lookahead_orbits = max(float(request.args.get("n_orbits", HARVARD_LOOKAHEAD_ORBITS)), 0.25)
     n_points = int(request.args.get(
@@ -391,18 +392,63 @@ def api_harvard_approach():
         lat,
         lon,
         alt_km,
+        obs_alt_m=HARVARD_GS_ALT_M,
     )
 
-    # Choose the next local minimum in slant range. If no local minimum is
-    # detected in the sampled lookahead window, fall back to the global minimum.
-    idx = 0
-    if len(slant_range_arr) > 1 and slant_range_arr[1] <= slant_range_arr[0]:
-        d = np.diff(slant_range_arr)
-        local_min = np.where((d[:-1] < 0) & (d[1:] >= 0))[0] + 1
-        if len(local_min) > 0:
-            idx = int(local_min[0])
-        else:
-            idx = int(np.argmin(slant_range_arr))
+    vis_idx = np.where(el_arr > 0.0)[0]
+    path = []
+    pass_start_eta_sec = None
+    pass_end_eta_sec = None
+
+    if len(vis_idx) > 0:
+        # Build contiguous LOS segments and choose the segment that contains
+        # the smallest slant-range point (closest approach while visible).
+        cuts = np.where(np.diff(vis_idx) > 1)[0]
+        seg_starts = np.concatenate(([vis_idx[0]], vis_idx[cuts + 1]))
+        seg_ends = np.concatenate((vis_idx[cuts], [vis_idx[-1]]))
+
+        best_seg_start = int(seg_starts[0])
+        best_seg_end = int(seg_ends[0])
+        best_idx = best_seg_start
+        best_range = float("inf")
+
+        for s, e in zip(seg_starts, seg_ends):
+            s_i = int(s)
+            e_i = int(e)
+            seg = np.arange(s_i, e_i + 1)
+            local_idx = int(seg[int(np.argmin(slant_range_arr[seg]))])
+            local_range = float(slant_range_arr[local_idx])
+            if local_range < best_range:
+                best_range = local_range
+                best_idx = local_idx
+                best_seg_start = s_i
+                best_seg_end = e_i
+
+        idx = best_idx
+        seg = np.arange(best_seg_start, best_seg_end + 1)
+
+        # Keep response light while preserving arc shape.
+        step = max(1, len(seg) // 260)
+        seg_ds = seg[::step]
+        if seg_ds[-1] != seg[-1]:
+            seg_ds = np.append(seg_ds, seg[-1])
+
+        path = [
+            {
+                "az": round(float(az_arr[i]), 2),
+                "el": round(float(el_arr[i]), 2),
+                "eta_sec": round(float(t_sec[i] - t_sec[0]), 1),
+            }
+            for i in seg_ds
+        ]
+
+        pass_start_eta_sec = max(float(t_sec[best_seg_start] - t_sec[0]), 0.0)
+        pass_end_eta_sec = max(float(t_sec[best_seg_end] - t_sec[0]), 0.0)
+        visible = True
+    else:
+        # No LOS in lookahead window: still provide nearest geometry point.
+        idx = int(np.argmin(slant_range_arr))
+        visible = False
 
     az_deg = float(az_arr[idx])
     el_deg = float(el_arr[idx])
@@ -412,6 +458,7 @@ def api_harvard_approach():
 
     return jsonify(
         observer={"lat": HARVARD_LAT, "lon": HARVARD_LON},
+        observer_alt_m=round(HARVARD_GS_ALT_M, 2),
         az_deg=round(az_deg, 2),
         el_deg=round(el_deg, 2),
         eta_sec=round(eta_sec, 1),
@@ -420,7 +467,10 @@ def api_harvard_approach():
         approach_lat=round(float(lat[idx]), 4),
         approach_lon=round(float(lon[idx]), 4),
         approach_alt_km=round(float(alt_km[idx]), 1),
-        visible=el_deg > 0.0,
+        visible=visible,
+        pass_start_eta_sec=round(pass_start_eta_sec, 1) if pass_start_eta_sec is not None else None,
+        pass_end_eta_sec=round(pass_end_eta_sec, 1) if pass_end_eta_sec is not None else None,
+        path=path,
     )
 
 
