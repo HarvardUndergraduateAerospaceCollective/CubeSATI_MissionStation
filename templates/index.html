@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mission Control — HUCSAT</title>
+  <title>Mission Control - HUCSAT</title>
 
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -14,31 +14,21 @@
 </head>
 <body>
 
-  <!-- ═══ Top HUD bar ═══ -->
+  <!-- --- Top HUD bar --- -->
   <header id="hud-bar">
     <div id="met-clock" class="hud-item hud-amber">MET 00:00:00</div>
     <div id="hud-title" class="hud-item hud-green">SATELLITE  GROUND  TRACK</div>
     <div id="live-badge" class="hud-item {{ 'hud-red' if live else 'hud-dim' }}">
-      <span id="live-dot">●</span>
+      <span id="live-dot">o</span>
       <span id="live-label">{{ 'LIVE' if live else 'OFFLINE' }}</span>
     </div>
   </header>
 
-  <!-- ═══ Main dashboard ═══ -->
+  <!-- --- Main dashboard --- -->
   <div id="dashboard">
 
-    <!-- Map section (top third) -->
-    <div id="map-section">
-      <div id="map-container">
-        <div id="map"></div>
-        <div id="hud-overlay">
-          <span id="hud-text"></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Telemetry panels (horizontal row) -->
-    <div id="panels-row">
+    <!-- Left telemetry panels -->
+    <div class="side-panels left-panels">
       <div class="panel-box" id="panel-0">
         <div class="panel-title" id="panel-title-0">ALTITUDE</div>
         <canvas id="chart-0"></canvas>
@@ -54,6 +44,18 @@
         <canvas id="chart-2"></canvas>
         <div class="awaiting" id="awaiting-2">AWAITING DATA</div>
       </div>
+    </div>
+
+    <!-- Center map -->
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="hud-overlay">
+        <span id="hud-text"></span>
+      </div>
+    </div>
+
+    <!-- Right telemetry panels -->
+    <div class="side-panels right-panels">
       <div class="panel-box" id="panel-3">
         <div class="panel-title" id="panel-title-3">GYROSCOPE</div>
         <canvas id="chart-3"></canvas>
@@ -67,22 +69,22 @@
       <div class="panel-box" id="panel-best-dir">
         <div class="panel-title" id="panel-title-best-dir">BEST DIRECTION</div>
         <canvas id="chart-best-dir"></canvas>
-        <div class="best-dir-label" id="best-dir-current">—</div>
+        <div class="best-dir-label" id="best-dir-current">-</div>
         <div class="awaiting" id="awaiting-best-dir">AWAITING DATA</div>
       </div>
     </div>
 
   </div>
 
-  <!-- ═══ FSM State Panel ═══ -->
+  <!-- --- FSM State Panel --- -->
   <div id="fsm-bar">
     <div id="fsm-state-info">
       <span class="fsm-label">FSM:</span>
       <span id="fsm-state" class="fsm-value">AWAITING DATA</span>
-      <span class="fsm-sep">│</span>
+      <span class="fsm-sep">|</span>
       <span class="fsm-label">DEPL:</span>
       <span id="fsm-depl" class="fsm-value">AWAITING DATA</span>
-      <span class="fsm-sep">│</span>
+      <span class="fsm-sep">|</span>
       <span class="fsm-label">UPTIME:</span>
       <span id="fsm-uptime" class="fsm-value">AWAITING DATA</span>
     </div>
@@ -92,7 +94,7 @@
     </div>
   </div>
 
-  <!-- ═══ Bottom status bar ═══ -->
+  <!-- --- Bottom status bar --- -->
   <footer id="status-bar">
     <span id="db-count">DB: 0 pkts</span>
   </footer>

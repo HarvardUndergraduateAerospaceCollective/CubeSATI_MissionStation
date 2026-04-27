@@ -76,24 +76,33 @@ body::after {
 
 #dashboard {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 4fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
   gap: var(--gap);
   padding: var(--gap);
   min-height: 0;
 }
 
-/* ── Map section (top portion) ── */
-
-#map-section {
-  flex: 2;
-  min-height: 0;
+/* Let panel groups place children directly on dashboard grid */
+.side-panels {
+  display: contents;
 }
 
+.left-panels  .panel-box:nth-child(1) { grid-column: 1; grid-row: 1; }
+.left-panels  .panel-box:nth-child(2) { grid-column: 1; grid-row: 2; }
+.left-panels  .panel-box:nth-child(3) { grid-column: 1; grid-row: 3; }
+.right-panels .panel-box:nth-child(1) { grid-column: 3; grid-row: 1; }
+.right-panels .panel-box:nth-child(2) { grid-column: 3; grid-row: 2; }
+.right-panels .panel-box:nth-child(3) { grid-column: 3; grid-row: 3; }
+
 #map-container {
+  grid-column: 2;
+  grid-row: 1 / 4;
   position: relative;
   width: 100%;
   height: 100%;
+  min-height: 0;
   border: 2px solid var(--border-accent);
   border-radius: 4px;
   overflow: hidden;
@@ -125,16 +134,6 @@ body::after {
   letter-spacing: 1px;
 }
 
-/* ── Telemetry panels row ── */
-
-#panels-row {
-  flex: 3;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: var(--gap);
-  min-height: 0;
-}
-
 .panel-box {
   background: var(--bg-panel);
   border: 1px solid var(--border-dim);
@@ -149,12 +148,12 @@ body::after {
 }
 
 .panel-title {
-  font-size: 20px;
+  font-size: clamp(14px, 1.15vw, 20px);
   font-weight: bold;
   margin-bottom: 4px;
   text-align: center;
   flex-shrink: 0;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
 }
 
 #panel-title-0 { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
@@ -219,41 +218,41 @@ body::after {
 
 #fsm-bar {
   display: flex;
-  align-items: stretch;
-  gap: 16px;
-  padding: 8px 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 16px;
   background: var(--bg-bar);
   border-top: 2px solid var(--border-dim);
   flex-shrink: 0;
-  min-height: 80px;
+  height: 52px;
 }
 
 #fsm-state-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: 440px;
+  min-width: 320px;
 }
 
 .fsm-label {
   color: var(--phosphor-amber);
-  font-size: 18px;
+  font-size: 13px;
   font-weight: bold;
   letter-spacing: 1px;
 }
 
 .fsm-value {
   color: var(--phosphor-green);
-  font-size: 18px;
+  font-size: 13px;
   font-weight: bold;
   text-shadow: 0 0 8px rgba(51, 255, 0, 0.4);
 }
 
 .fsm-sep {
   color: var(--border-dim);
-  font-size: 18px;
+  font-size: 13px;
 }
 
 #fsm-timeline-container {
@@ -274,7 +273,7 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 11px;
   color: var(--text-dim);
   pointer-events: none;
 }
