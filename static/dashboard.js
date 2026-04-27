@@ -28,6 +28,7 @@
   // ── State ──
   let startTime = Date.now();
   let blinkOn = true;
+  let lastApproach = null;
 
   // ──────────────────────────────────────────
   // Leaflet map
@@ -114,7 +115,7 @@
     const el = document.getElementById("globe");
     if (!el || typeof Globe === "undefined") return;
 
-    globeViz = Globe({ animateIn: false })(el)
+    globeViz = Globe({ animateIn: true })(el)
       .globeImageUrl("//unpkg.com/three-globe/example/img/earth-dark.jpg")
       .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
       .backgroundColor("rgba(0,0,0,0)")
@@ -130,18 +131,22 @@
       .pathStroke(1.5)
       .pathDashLength(0.05)
       .pathDashGap(0.02)
-      .pathDashAnimateTime(15000)
+      .pathDashAnimateTime(350000)
       .pointsData([])
       .pointColor(function () { return "#ff2200"; })
       .pointAltitude(0.02)
       .pointRadius(0.4)
-      .pointOfView({ lat: 20, lng: 0, altitude: 2 });
+      .pointOfView({ lat: 20, lng: 74, altitude: 2 });
 
     var ro = new ResizeObserver(function () {
       globeViz.width(el.clientWidth).height(el.clientHeight);
     });
     ro.observe(el);
   })();
+
+  const approachCanvas = document.getElementById("approach-polar");
+  const approachMeta = document.getElementById("approach-meta");
+  const approachCtx = approachCanvas ? approachCanvas.getContext("2d") : null;
 
 
   // ──────────────────────────────────────────
@@ -205,6 +210,116 @@
 
   function isMissingFSMValue(v) {
     return v === undefined || v === null || v === "" || v === "—";
+  }
+
+  function formatEta(totalSeconds) {
+    const sec = Math.max(0, Math.round(Number(totalSeconds) || 0));
+    const hh = String(Math.floor(sec / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    return hh + ":" + mm + ":" + ss;
+  }
+
+  function drawApproachPolar(pred) {
+    if (!approachCanvas || !approachCtx) return;
+
+    const rect = approachCanvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const pixW = Math.max(2, Math.round(rect.width * dpr));
+    const pixH = Math.max(2, Math.round(rect.height * dpr));
+    if (approachCanvas.width !== pixW || approachCanvas.height !== pixH) {
+      approachCanvas.width = pixW;
+      approachCanvas.height = pixH;
+    }
+
+    approachCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    approachCtx.clearRect(0, 0, rect.width, rect.height);
+
+    const w = rect.width;
+    const h = rect.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const radius = Math.max(10, Math.min(w, h) * 0.40);
+
+    approachCtx.strokeStyle = "rgba(51, 255, 0, 0.22)";
+    approachCtx.lineWidth = 1;
+
+    for (const el of [0, 30, 60, 90]) {
+      const rr = ((90 - el) / 90) * radius;
+      approachCtx.beginPath();
+      approachCtx.arc(cx, cy, rr, 0, Math.PI * 2);
+      approachCtx.stroke();
+    }
+
+    for (const az of [0, 45, 90, 135, 180, 225, 270, 315]) {
+      const rad = az * Math.PI / 180;
+      const x = cx + radius * Math.sin(rad);
+      const y = cy - radius * Math.cos(rad);
+      approachCtx.beginPath();
+      approachCtx.moveTo(cx, cy);
+      approachCtx.lineTo(x, y);
+      approachCtx.stroke();
+    }
+
+    approachCtx.fillStyle = "#7a9a5a";
+    approachCtx.font = "10px monospace";
+    approachCtx.textAlign = "center";
+    approachCtx.textBaseline = "middle";
+
+    const labelRadius = radius + 14;
+    const azLabels = [
+      { az: 0, text: "N 0°" },
+      { az: 45, text: "45°" },
+      { az: 90, text: "E 90°" },
+      { az: 135, text: "135°" },
+      { az: 180, text: "S 180°" },
+      { az: 225, text: "225°" },
+      { az: 270, text: "W 270°" },
+      { az: 315, text: "315°" },
+    ];
+    for (const lbl of azLabels) {
+      const rad = lbl.az * Math.PI / 180;
+      const lx = cx + labelRadius * Math.sin(rad);
+      const ly = cy - labelRadius * Math.cos(rad);
+      approachCtx.fillText(lbl.text, lx, ly);
+    }
+
+    approachCtx.textAlign = "left";
+    for (const elTick of [0, 30, 60]) {
+      const rrTick = ((90 - elTick) / 90) * radius;
+      approachCtx.fillText(elTick + "°", cx + rrTick + 4, cy - 1);
+    }
+    approachCtx.textAlign = "center";
+    approachCtx.fillText("90°", cx, cy - 10);
+
+    if (!pred || typeof pred.az_deg !== "number" || typeof pred.el_deg !== "number") return;
+
+    const az = pred.az_deg;
+    const el = pred.el_deg;
+    const clampedEl = Math.max(0, Math.min(90, el));
+    const rr = ((90 - clampedEl) / 90) * radius;
+    const azRad = az * Math.PI / 180;
+    const px = cx + rr * Math.sin(azRad);
+    const py = cy - rr * Math.cos(azRad);
+
+    const color = el >= 0 ? "#33ff00" : "#ff6600";
+    approachCtx.strokeStyle = color;
+    approachCtx.lineWidth = 2;
+    approachCtx.beginPath();
+    approachCtx.moveTo(cx, cy);
+    approachCtx.lineTo(px, py);
+    approachCtx.stroke();
+
+    approachCtx.fillStyle = color;
+    approachCtx.beginPath();
+    approachCtx.arc(px, py, 4.5, 0, Math.PI * 2);
+    approachCtx.fill();
+
+    approachCtx.strokeStyle = "#ffffff";
+    approachCtx.lineWidth = 1;
+    approachCtx.stroke();
   }
 
   async function refreshTrack() {
@@ -502,6 +617,40 @@
     }
   }
 
+  async function refreshHarvardApproach() {
+    if (!approachCanvas) return;
+
+    const awaiting = document.getElementById("awaiting-placeholder");
+    try {
+      const data = await fetchJSON("/api/harvard_approach");
+      if (!data || typeof data.az_deg !== "number" || typeof data.el_deg !== "number") {
+        if (awaiting) awaiting.classList.remove("hidden");
+        if (approachMeta) approachMeta.textContent = "AWAITING DATA";
+        lastApproach = null;
+        drawApproachPolar(null);
+        return;
+      }
+
+      if (awaiting) awaiting.classList.add("hidden");
+      lastApproach = data;
+      drawApproachPolar(lastApproach);
+
+      if (approachMeta) {
+        approachMeta.textContent =
+          "AZ " + data.az_deg.toFixed(1) + "°  " +
+          "EL " + data.el_deg.toFixed(1) + "°  " +
+          "ETA " + formatEta(data.eta_sec) + "  " +
+          "RNG " + data.slant_range_km.toFixed(1) + " km";
+      }
+    } catch (e) {
+      console.error("Harvard approach fetch failed:", e);
+      if (awaiting) awaiting.classList.remove("hidden");
+      if (approachMeta) approachMeta.textContent = "AWAITING DATA";
+      lastApproach = null;
+      drawApproachPolar(null);
+    }
+  }
+
 
   // ──────────────────────────────────────────
   // SocketIO live push (optional)
@@ -515,6 +664,7 @@
         refreshPanels();
         refreshFSM();
         refreshBestDir();
+        refreshHarvardApproach();
       });
     } catch (e) {
       // SocketIO not available — no problem, we poll
@@ -535,6 +685,7 @@
   refreshStatus();
   refreshFSM();
   refreshBestDir();
+  refreshHarvardApproach();
 
   setInterval(refreshTrack, TRACK_REFRESH_MS);
   setInterval(refreshPanels, PANEL_REFRESH_MS);
@@ -542,6 +693,7 @@
   setInterval(tickMET, MET_TICK_MS);
   setInterval(refreshFSM, PANEL_REFRESH_MS);
   setInterval(refreshBestDir, PANEL_REFRESH_MS);
+  setInterval(refreshHarvardApproach, PANEL_REFRESH_MS);
 
   function scheduleMapResize() {
     if (scheduleMapResize._timer) {
@@ -549,6 +701,7 @@
     }
     scheduleMapResize._timer = setTimeout(function () {
       map.invalidateSize();
+      if (lastApproach) drawApproachPolar(lastApproach);
       scheduleMapResize._timer = null;
     }, 150);
   }

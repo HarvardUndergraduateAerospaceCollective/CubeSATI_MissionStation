@@ -92,6 +92,11 @@ PANEL_WINDOWS = {
     "panel_magnetometer":  2880,   # last 2 days
 }
 
+HARVARD_LAT = 42.3736
+HARVARD_LON = -71.1097
+HARVARD_LOOKAHEAD_ORBITS = 2.0
+HARVARD_POINTS_PER_ORBIT = 1200
+
 
 def _current_n_orbits():
     """Return n_orbits that grows with real elapsed time, matching missioncontrol.py."""
@@ -101,6 +106,109 @@ def _current_n_orbits():
         max_orbits = _state["n_orbits"]
     elapsed = time.time() - t0
     return min(HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS, max_orbits)
+
+
+def _central_angle_deg(lat_deg: np.ndarray, lon_deg: np.ndarray,
+                       ref_lat_deg: float, ref_lon_deg: float) -> np.ndarray:
+    """Great-circle angular separation in degrees to a reference point."""
+    lat = np.radians(lat_deg)
+    lon = np.radians(lon_deg)
+    ref_lat = np.radians(ref_lat_deg)
+    ref_lon = np.radians(ref_lon_deg)
+    cos_c = (
+        np.sin(ref_lat) * np.sin(lat)
+        + np.cos(ref_lat) * np.cos(lat) * np.cos(lon - ref_lon)
+    )
+    cos_c = np.clip(cos_c, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_c))
+
+
+def _observer_altaz(obs_lat_deg: float, obs_lon_deg: float,
+                    sat_lat_deg: float, sat_lon_deg: float,
+                    sat_alt_km: float):
+    """Convert satellite geodetic position to observer azimuth/elevation/range."""
+    obs_lat = np.radians(obs_lat_deg)
+    obs_lon = np.radians(obs_lon_deg)
+    sat_lat = np.radians(sat_lat_deg)
+    sat_lon = np.radians(sat_lon_deg)
+
+    obs_r = visualizer.R_EARTH
+    sat_r = visualizer.R_EARTH + sat_alt_km * 1000.0
+
+    obs_x = obs_r * np.cos(obs_lat) * np.cos(obs_lon)
+    obs_y = obs_r * np.cos(obs_lat) * np.sin(obs_lon)
+    obs_z = obs_r * np.sin(obs_lat)
+
+    sat_x = sat_r * np.cos(sat_lat) * np.cos(sat_lon)
+    sat_y = sat_r * np.cos(sat_lat) * np.sin(sat_lon)
+    sat_z = sat_r * np.sin(sat_lat)
+
+    dx = sat_x - obs_x
+    dy = sat_y - obs_y
+    dz = sat_z - obs_z
+
+    east = -np.sin(obs_lon) * dx + np.cos(obs_lon) * dy
+    north = (
+        -np.sin(obs_lat) * np.cos(obs_lon) * dx
+        - np.sin(obs_lat) * np.sin(obs_lon) * dy
+        + np.cos(obs_lat) * dz
+    )
+    up = (
+        np.cos(obs_lat) * np.cos(obs_lon) * dx
+        + np.cos(obs_lat) * np.sin(obs_lon) * dy
+        + np.sin(obs_lat) * dz
+    )
+
+    horizontal = np.hypot(east, north)
+    az_deg = (np.degrees(np.arctan2(east, north)) + 360.0) % 360.0
+    el_deg = np.degrees(np.arctan2(up, horizontal))
+    slant_range_km = np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0
+
+    return float(az_deg), float(el_deg), float(slant_range_km)
+
+
+def _observer_altaz_many(obs_lat_deg: float, obs_lon_deg: float,
+                         sat_lat_deg: np.ndarray, sat_lon_deg: np.ndarray,
+                         sat_alt_km: np.ndarray):
+    """Vectorized observer azimuth/elevation/slant-range for many satellite points."""
+    obs_lat = np.radians(obs_lat_deg)
+    obs_lon = np.radians(obs_lon_deg)
+    sat_lat = np.radians(sat_lat_deg)
+    sat_lon = np.radians(sat_lon_deg)
+
+    obs_r = visualizer.R_EARTH
+    sat_r = visualizer.R_EARTH + sat_alt_km * 1000.0
+
+    obs_x = obs_r * np.cos(obs_lat) * np.cos(obs_lon)
+    obs_y = obs_r * np.cos(obs_lat) * np.sin(obs_lon)
+    obs_z = obs_r * np.sin(obs_lat)
+
+    sat_x = sat_r * np.cos(sat_lat) * np.cos(sat_lon)
+    sat_y = sat_r * np.cos(sat_lat) * np.sin(sat_lon)
+    sat_z = sat_r * np.sin(sat_lat)
+
+    dx = sat_x - obs_x
+    dy = sat_y - obs_y
+    dz = sat_z - obs_z
+
+    east = -np.sin(obs_lon) * dx + np.cos(obs_lon) * dy
+    north = (
+        -np.sin(obs_lat) * np.cos(obs_lon) * dx
+        - np.sin(obs_lat) * np.sin(obs_lon) * dy
+        + np.cos(obs_lat) * dz
+    )
+    up = (
+        np.cos(obs_lat) * np.cos(obs_lon) * dx
+        + np.cos(obs_lat) * np.sin(obs_lon) * dy
+        + np.sin(obs_lat) * dz
+    )
+
+    horizontal = np.hypot(east, north)
+    az_deg = (np.degrees(np.arctan2(east, north)) + 360.0) % 360.0
+    el_deg = np.degrees(np.arctan2(up, horizontal))
+    slant_range_km = np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0
+
+    return az_deg, el_deg, slant_range_km
 
 
 # ──────────────────────────────────────────────
@@ -249,6 +357,71 @@ def api_fsm():
 def api_best_dir():
     """Return best-direction distribution for the doughnut chart."""
     return jsonify(panel_best_dir.compute())
+
+
+@app.route("/api/harvard_approach")
+def api_harvard_approach():
+    """Return alt/az of the next closest slant-range approach to Harvard."""
+    n_now = _current_n_orbits()
+    lookahead_orbits = max(float(request.args.get("n_orbits", HARVARD_LOOKAHEAD_ORBITS)), 0.25)
+    n_points = int(request.args.get(
+        "n_points",
+        max(int(lookahead_orbits * HARVARD_POINTS_PER_ORBIT), 600),
+    ))
+
+    with _state_lock:
+        sma, ecc, inc = _state["sma"], _state["ecc"], _state["inc"]
+        raan, argp = _state["raan"], _state["argp"]
+
+    lon, lat, alt_km, t_sec = visualizer.ground_track_with_alt(
+        sma,
+        ecc,
+        inc,
+        raan,
+        argp,
+        n_orbits=lookahead_orbits,
+        n_points=n_points,
+        start_orbit=n_now,
+    )
+
+    separation_deg = _central_angle_deg(lat, lon, HARVARD_LAT, HARVARD_LON)
+    az_arr, el_arr, slant_range_arr = _observer_altaz_many(
+        HARVARD_LAT,
+        HARVARD_LON,
+        lat,
+        lon,
+        alt_km,
+    )
+
+    # Choose the next local minimum in slant range. If no local minimum is
+    # detected in the sampled lookahead window, fall back to the global minimum.
+    idx = 0
+    if len(slant_range_arr) > 1 and slant_range_arr[1] <= slant_range_arr[0]:
+        d = np.diff(slant_range_arr)
+        local_min = np.where((d[:-1] < 0) & (d[1:] >= 0))[0] + 1
+        if len(local_min) > 0:
+            idx = int(local_min[0])
+        else:
+            idx = int(np.argmin(slant_range_arr))
+
+    az_deg = float(az_arr[idx])
+    el_deg = float(el_arr[idx])
+    slant_range_km = float(slant_range_arr[idx])
+
+    eta_sec = max(float(t_sec[idx] - t_sec[0]), 0.0)
+
+    return jsonify(
+        observer={"lat": HARVARD_LAT, "lon": HARVARD_LON},
+        az_deg=round(az_deg, 2),
+        el_deg=round(el_deg, 2),
+        eta_sec=round(eta_sec, 1),
+        slant_range_km=round(slant_range_km, 1),
+        separation_deg=round(float(separation_deg[idx]), 2),
+        approach_lat=round(float(lat[idx]), 4),
+        approach_lon=round(float(lon[idx]), 4),
+        approach_alt_km=round(float(alt_km[idx]), 1),
+        visible=el_deg > 0.0,
+    )
 
 
 # ──────────────────────────────────────────────
