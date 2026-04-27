@@ -291,6 +291,28 @@ body::after {
   height: 28px;
 }
 
+/* ── Bottom row (row 3, col 2) ── */
+
+#bottom-row {
+  grid-column: 2;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--gap);
+  min-height: 0;
+}
+
+#globe {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+#panel-title-globe       { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
+#panel-title-feed        { color: #ffb000; text-shadow: 0 0 8px rgba(255, 176, 0, 0.4); }
+#panel-title-placeholder { color: #3a5a3a; }
+
 /* ── Leaflet custom markers ── */
 
 .sat-icon {

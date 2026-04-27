@@ -74,6 +74,22 @@
       </div>
     </div>
 
+    <!-- Bottom center: 3D globe | live feed | placeholder -->
+    <div id="bottom-row">
+      <div class="panel-box" id="globe-panel">
+        <div class="panel-title" id="panel-title-globe">3D ORBIT</div>
+        <div id="globe"></div>
+      </div>
+      <div class="panel-box" id="live-feed-panel">
+        <div class="panel-title" id="panel-title-feed">LIVE FEED</div>
+        <div class="awaiting" id="awaiting-feed">PLACEHOLDER</div>
+      </div>
+      <div class="panel-box" id="placeholder-panel">
+        <div class="panel-title" id="panel-title-placeholder">TBD</div>
+        <div class="awaiting" id="awaiting-placeholder">PLACEHOLDER</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- --- FSM State Panel --- -->
@@ -109,6 +125,9 @@
 
   <!-- Socket.IO (only active in live mode) -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <!-- Globe.gl -->
+  <script src="https://unpkg.com/globe.gl"></script>
 
   <script src="/static/dashboard.js?v={{ cache_bust }}"></script>
 </body>

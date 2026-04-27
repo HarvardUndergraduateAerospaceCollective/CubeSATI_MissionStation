@@ -35,7 +35,7 @@
 
   const map = L.map("map", {
     center: [0, 0],
-    zoom: 2,
+    zoom: 2.5,
     minZoom: 1,
     maxZoom: 6,
     worldCopyJump: true,
@@ -103,6 +103,45 @@
     }
   `;
   document.head.appendChild(tooltipStyle);
+
+
+  // ──────────────────────────────────────────
+  // Globe.gl 3D view
+  // ──────────────────────────────────────────
+
+  let globeViz = null;
+  (function initGlobe() {
+    const el = document.getElementById("globe");
+    if (!el || typeof Globe === "undefined") return;
+
+    globeViz = Globe({ animateIn: false })(el)
+      .globeImageUrl("//unpkg.com/three-globe/example/img/earth-dark.jpg")
+      .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
+      .backgroundColor("rgba(0,0,0,0)")
+      .showGraticules(true)
+      .showAtmosphere(true)
+      .atmosphereColor("#33ff00")
+      .atmosphereAltitude(0.12)
+      .pathsData([])
+      .pathPoints(function (seg) { return seg; })
+      .pathPointLat(function (p) { return p[0]; })
+      .pathPointLng(function (p) { return p[1]; })
+      .pathColor(function () { return "#33ff00"; })
+      .pathStroke(1.5)
+      .pathDashLength(0.05)
+      .pathDashGap(0.02)
+      .pathDashAnimateTime(15000)
+      .pointsData([])
+      .pointColor(function () { return "#ff2200"; })
+      .pointAltitude(0.02)
+      .pointRadius(0.4)
+      .pointOfView({ lat: 20, lng: 0, altitude: 2 });
+
+    var ro = new ResizeObserver(function () {
+      globeViz.width(el.clientWidth).height(el.clientHeight);
+    });
+    ro.observe(el);
+  })();
 
 
   // ──────────────────────────────────────────
@@ -181,6 +220,12 @@
       }
       if (data.current) satMarker.setLatLng(data.current);
       if (data.start) startMarker.setLatLng(data.start);
+      if (globeViz) {
+        globeViz.pathsData(data.segments || []);
+        if (data.current) {
+          globeViz.pointsData([{ lat: data.current[0], lng: data.current[1] }]);
+        }
+      }
     } catch (e) {
       console.error("Track fetch failed:", e);
     }
