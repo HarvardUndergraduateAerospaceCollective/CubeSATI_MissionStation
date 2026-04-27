@@ -14,6 +14,7 @@
 
   // ── Constants ──
   const TRACK_REFRESH_MS = 5_000;
+  const GLOBE_PATH_REFRESH_MS = 300_000;
   const PANEL_REFRESH_MS = 10_000;
   const STATUS_REFRESH_MS = 1_000;
   const MET_TICK_MS = 1_000;
@@ -29,6 +30,7 @@
   let startTime = Date.now();
   let blinkOn = true;
   let lastApproach = null;
+  let nextGlobePathUpdateAt = 0;
 
   // ──────────────────────────────────────────
   // Leaflet map
@@ -376,7 +378,11 @@
       if (data.current) satMarker.setLatLng(data.current);
       if (data.start) startMarker.setLatLng(data.start);
       if (globeViz) {
-        globeViz.pathsData(data.segments || []);
+        const now = Date.now();
+        if (now >= nextGlobePathUpdateAt) {
+          globeViz.pathsData(data.segments || []);
+          nextGlobePathUpdateAt = now + GLOBE_PATH_REFRESH_MS;
+        }
         if (data.current) {
           globeViz.pointsData([{ lat: data.current[0], lng: data.current[1] }]);
         }
