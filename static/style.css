@@ -17,7 +17,7 @@
   --text-label: #7a9a5a;
   --text-dim: #2a4a2a;
   --grid-color: rgba(51, 255, 0, 0.06);
-  --gap: 6px;
+  --gap: 8px;
 }
 
 body {
@@ -53,22 +53,22 @@ body::after {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 24px;
+  padding: 6px 20px;
   background: var(--bg-bar);
   border-bottom: 2px solid var(--border-dim);
   flex-shrink: 0;
-  height: 52px;
+  height: 38px;
 }
 
-.hud-item { font-size: 32px; font-weight: bold; letter-spacing: 2px; }
+.hud-item { font-size: 26px; font-weight: bold; }
 .hud-green { color: var(--phosphor-green); text-shadow: 0 0 10px rgba(51, 255, 0, 0.5); }
 .hud-amber { color: var(--phosphor-amber); text-shadow: 0 0 10px rgba(255, 176, 0, 0.5); }
 .hud-red   { color: var(--phosphor-red); text-shadow: 0 0 10px rgba(255, 34, 0, 0.5); }
 .hud-dim   { color: #3a3a2a; }
 
 #live-dot {
-  font-size: 20px;
-  margin-right: 6px;
+  font-size: 16px;
+  margin-right: 4px;
   vertical-align: middle;
 }
 
@@ -138,7 +138,7 @@ body::after {
   background: var(--bg-panel);
   border: 1px solid var(--border-dim);
   border-radius: 4px;
-  padding: 8px 10px 6px;
+  padding: 6px 8px 4px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -148,12 +148,11 @@ body::after {
 }
 
 .panel-title {
-  font-size: clamp(14px, 1.15vw, 20px);
+  font-size: clamp(16px, 1.4vw, 28px);
   font-weight: bold;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   text-align: center;
   flex-shrink: 0;
-  letter-spacing: 1px;
 }
 
 #panel-title-0 { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
@@ -219,12 +218,12 @@ body::after {
 #fsm-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 3px 16px;
+  gap: 12px;
+  padding: 4px 20px;
   background: var(--bg-bar);
   border-top: 2px solid var(--border-dim);
   flex-shrink: 0;
-  height: 52px;
+  height: 50px;
 }
 
 #fsm-state-info {
@@ -283,13 +282,13 @@ body::after {
 /* ── Bottom status bar ── */
 
 #status-bar {
-  padding: 6px 24px;
+  padding: 4px 20px;
   background: var(--bg-bar);
   border-top: 1px solid var(--border-dim);
-  font-size: 16px;
+  font-size: 12px;
   color: var(--text-label);
   flex-shrink: 0;
-  height: 36px;
+  height: 28px;
 }
 
 /* ── Leaflet custom markers ── */
