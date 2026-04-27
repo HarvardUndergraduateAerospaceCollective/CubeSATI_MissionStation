@@ -13,7 +13,7 @@ Direction mapping (from OBC state_orient.py):
 import packet_store
 
 TITLE         = "BEST DIRECTION"
-COLOR         = "#ff66aa"
+COLOR         = "#ffb000"
 SOURCE        = "telemetry"
 TELEMETRY_KEY = "FSM_best_dir"
 
@@ -27,11 +27,11 @@ FACE_LABELS = {
 }
 
 FACE_COLORS = {
-    0: "#00ccff",   # +Y  — cyan
-    1: "#cc44ff",   # −X  — purple
-    2: "#ffcc00",   # −Y  — gold
-    3: "#ff4400",   # +X  — orange
-    -1: "#334455",  # N/A — dim
+    0: "#33ff00",   # +Y  — green
+    1: "#ffb000",   # −X  — amber
+    2: "#ff6600",   # −Y  — orange
+    3: "#00ff88",   # +X  — teal
+    -1: "#1a1a1a",  # N/A — dim
 }
 
 

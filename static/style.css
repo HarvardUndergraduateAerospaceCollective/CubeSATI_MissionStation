@@ -1,22 +1,28 @@
 /* ═══════════════════════════════════════════════
-   Mission Control — Dark theme styling
-   Matches the matplotlib GridSpec layout:
-     width_ratios  = [1, 4, 1]
-     height_ratios = [1, 0.15, 1]  (tiny gap between panel rows)
+   Mission Control — Apollo/Shuttle CRT Theme
+   Optimized for 16:9 TV displays
    ═══════════════════════════════════════════════ */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --dashboard-gap: 8px;
-  --map-target-max-height: 60vh;
-  --map-target-max-width: 106vh;
-  --panel-title-size: clamp(16px, 1.4vw, 28px);
+  --phosphor-green: #33ff00;
+  --phosphor-amber: #ffb000;
+  --phosphor-red: #ff2200;
+  --bg-body: #050505;
+  --bg-panel: #0a0c0a;
+  --bg-bar: #080a08;
+  --border-dim: #1a2a1a;
+  --border-accent: #2a4a2a;
+  --text-label: #7a9a5a;
+  --text-dim: #2a4a2a;
+  --grid-color: rgba(51, 255, 0, 0.06);
+  --gap: 6px;
 }
 
 body {
-  background: #060e1a;
-  color: #8899aa;
+  background: var(--bg-body);
+  color: var(--text-label);
   font-family: "Courier New", "Consolas", monospace;
   height: 100vh;
   display: flex;
@@ -25,92 +31,139 @@ body {
   user-select: none;
 }
 
+/* CRT scanline overlay */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.05) 2px,
+    rgba(0, 0, 0, 0.05) 4px
+  );
+}
+
 /* ── Top HUD bar ── */
 
 #hud-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 20px;
-  background: #0a1628;
-  border-bottom: 1px solid #1a3a50;
+  padding: 8px 24px;
+  background: var(--bg-bar);
+  border-bottom: 2px solid var(--border-dim);
   flex-shrink: 0;
-  height: 38px;
+  height: 52px;
 }
 
-.hud-item { font-size: 26px; font-weight: bold; }
-.hud-cyan  { color: #00ddff; }
-.hud-red   { color: #ff4444; }
-.hud-grey  { color: #556666; }
+.hud-item { font-size: 32px; font-weight: bold; letter-spacing: 2px; }
+.hud-green { color: var(--phosphor-green); text-shadow: 0 0 10px rgba(51, 255, 0, 0.5); }
+.hud-amber { color: var(--phosphor-amber); text-shadow: 0 0 10px rgba(255, 176, 0, 0.5); }
+.hud-red   { color: var(--phosphor-red); text-shadow: 0 0 10px rgba(255, 34, 0, 0.5); }
+.hud-dim   { color: #3a3a2a; }
 
 #live-dot {
-  font-size: 16px;
-  margin-right: 4px;
+  font-size: 20px;
+  margin-right: 6px;
   vertical-align: middle;
 }
 
-/* ── Main dashboard grid ──
-   3 columns (side | map | side) matching width_ratios [1, 4, 1].
-   2 panel rows with a small gap between them (height_ratios [1, 0.15, 1]).
-   The map spans both rows.
-*/
+/* ── Main dashboard ── */
 
 #dashboard {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 4fr 1fr;
-  grid-template-rows: 1fr 1fr 1fr;
-  gap: var(--dashboard-gap);
-  padding: var(--dashboard-gap);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
   min-height: 0;
 }
 
-/* ── Side panels ── */
+/* ── Map section (top portion) ── */
 
-.side-panels {
-  display: contents;         /* let children participate in the parent grid */
+#map-section {
+  flex: 2;
+  min-height: 0;
+}
+
+#map-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 2px solid var(--border-accent);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 0 12px rgba(51, 255, 0, 0.08), inset 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-panel);
+}
+
+.leaflet-container { background: var(--bg-panel) !important; }
+
+#hud-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+#hud-text {
+  font-size: 20px;
+  color: var(--phosphor-amber);
+  text-shadow: 0 0 8px rgba(255, 176, 0, 0.4);
+  white-space: nowrap;
+  letter-spacing: 1px;
+}
+
+/* ── Telemetry panels row ── */
+
+#panels-row {
+  flex: 3;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--gap);
+  min-height: 0;
 }
 
 .panel-box {
-  background: #0a1628;
-  border: 1px solid #1a3a50;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  padding: 6px 8px 4px;
+  padding: 8px 10px 6px;
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.4);
 }
-
-/* Place panels into exact grid cells:
-     altitude      (row 1, col 1)    gyroscope     (row 1, col 3)
-     signal        (row 2, col 1)    power         (row 2, col 3)
-     magnetometer  (row 3, col 1)
-*/
-.left-panels  .panel-box:nth-child(1) { grid-column: 1; grid-row: 1; }
-.left-panels  .panel-box:nth-child(2) { grid-column: 1; grid-row: 2; }
-.left-panels  .panel-box:nth-child(3) { grid-column: 1; grid-row: 3; }
-.right-panels .panel-box:nth-child(1) { grid-column: 3; grid-row: 1; }
-.right-panels .panel-box:nth-child(2) { grid-column: 3; grid-row: 2; }
-.right-panels .panel-box:nth-child(3) { grid-column: 3; grid-row: 3; }
 
 .panel-title {
-  font-size: var(--panel-title-size);
+  font-size: 20px;
   font-weight: bold;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   text-align: center;
   flex-shrink: 0;
+  letter-spacing: 2px;
 }
 
-#panel-title-0 { color: #00ffcc; }   /* altitude     */
-#panel-title-1 { color: #00ffcc; }   /* signal       */
-#panel-title-2 { color: #00ffcc; }   /* magnetometer */
-#panel-title-3 { color: #00ffcc; }   /* gyroscope    */
-#panel-title-4 { color: #00ffcc; }   /* power        */
-#panel-title-best-dir { color: #00ffcc; }  /* best dir */
+#panel-title-0 { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
+#panel-title-1 { color: #00ff88; text-shadow: 0 0 8px rgba(0, 255, 136, 0.4); }
+#panel-title-2 { color: #ffb000; text-shadow: 0 0 8px rgba(255, 176, 0, 0.4); }
+#panel-title-3 { color: #ff6600; text-shadow: 0 0 8px rgba(255, 102, 0, 0.4); }
+#panel-title-4 { color: #ff2244; text-shadow: 0 0 8px rgba(255, 34, 68, 0.4); }
+#panel-title-best-dir { color: #ffb000; text-shadow: 0 0 8px rgba(255, 176, 0, 0.4); }
 
-/* Chart canvas wrapper — constrain so Chart.js doesn't blow out */
 .panel-box canvas {
   flex: 1;
   min-height: 0;
@@ -125,8 +178,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  color: #334455;
+  font-size: 16px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
   pointer-events: none;
 }
 
@@ -139,9 +193,10 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -65%);
-  font-size: 20px;
+  font-size: 26px;
   font-weight: bold;
-  color: #ff66aa;
+  color: var(--phosphor-amber);
+  text-shadow: 0 0 10px rgba(255, 176, 0, 0.5);
   pointer-events: none;
   text-align: center;
   line-height: 1;
@@ -153,111 +208,52 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  color: #334455;
+  font-size: 16px;
+  color: var(--text-dim);
   pointer-events: none;
 }
 
 #awaiting-best-dir.hidden { display: none; }
 
-/* ── Center map (spans both rows) ── */
-
-#map-container {
-  grid-column: 2;
-  grid-row: 1 / 4;          /* span all three panel rows */
-  position: relative;
-  width: min(100%, var(--map-target-max-width));
-  max-height: var(--map-target-max-height);
-  aspect-ratio: 16 / 9;
-  justify-self: center;
-  align-self: center;
-  border: 2px solid #00ddff;
-  border-radius: 4px;
-  overflow: hidden;
-  min-height: 0;
-}
-
-#map {
-  width: 100%;
-  height: 100%;
-  background: #0a1628;
-}
-
-/* Override Leaflet's white background */
-.leaflet-container { background: #0a1628 !important; }
-
-/* HUD overlay at bottom of map */
-#hud-overlay {
-  position: absolute;
-  bottom: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  pointer-events: none;
-}
-
-#hud-text {
-  font-size: 22px;
-  color: #55aa88;
-  white-space: nowrap;
-}
-
-/* ── Bottom status bar ── */
-
-#status-bar {
-  padding: 4px 20px;
-  background: #0a1628;
-  border-top: 1px solid #1a3a50;
-  font-size: 12px;
-  color: #446688;
-  flex-shrink: 0;
-  height: 28px;
-}
-
-/* ── Leaflet custom markers ── */
-
-.sat-icon {
-  background: none;
-  border: none;
-}
-
 /* ── FSM State Bar ── */
 
 #fsm-bar {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 20px;
-  background: #0a1628;
-  border-top: 1px solid #1a3a50;
+  align-items: stretch;
+  gap: 16px;
+  padding: 8px 24px;
+  background: var(--bg-bar);
+  border-top: 2px solid var(--border-dim);
   flex-shrink: 0;
-  height: 50px;
+  min-height: 80px;
 }
 
 #fsm-state-info {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: 340px;
+  min-width: 440px;
 }
 
 .fsm-label {
-  color: #667788;
-  font-size: 12px;
+  color: var(--phosphor-amber);
+  font-size: 18px;
   font-weight: bold;
+  letter-spacing: 1px;
 }
 
 .fsm-value {
-  color: #00ddff;
-  font-size: 12px;
+  color: var(--phosphor-green);
+  font-size: 18px;
   font-weight: bold;
+  text-shadow: 0 0 8px rgba(51, 255, 0, 0.4);
 }
 
 .fsm-sep {
-  color: #1a3a50;
-  font-size: 12px;
+  color: var(--border-dim);
+  font-size: 18px;
 }
 
 #fsm-timeline-container {
@@ -278,9 +274,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  color: #334455;
+  font-size: 14px;
+  color: var(--text-dim);
   pointer-events: none;
 }
 
 #awaiting-fsm.hidden { display: none; }
+
+/* ── Bottom status bar ── */
+
+#status-bar {
+  padding: 6px 24px;
+  background: var(--bg-bar);
+  border-top: 1px solid var(--border-dim);
+  font-size: 16px;
+  color: var(--text-label);
+  flex-shrink: 0;
+  height: 36px;
+}
+
+/* ── Leaflet custom markers ── */
+
+.sat-icon {
+  background: none;
+  border: none;
+}

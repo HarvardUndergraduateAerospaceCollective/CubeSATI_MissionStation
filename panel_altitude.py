@@ -9,7 +9,7 @@ import numpy as np
 TITLE   = "ALTITUDE"
 Y_LABEL = "Alt (km)"
 X_LABEL = "Time (min)"
-COLOR   = "#00ccff"
+COLOR   = "#33ff00"
 SOURCE  = "orbital"
 
 

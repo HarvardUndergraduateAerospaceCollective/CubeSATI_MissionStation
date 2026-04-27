@@ -6,7 +6,6 @@
 (function () {
   "use strict";
 
-  // Global error handler — logs to a visible element if present
   window.addEventListener("error", function (e) {
     console.error("Dashboard error:", e.message, e.filename, e.lineno);
     var el = document.getElementById("db-count");
@@ -14,12 +13,17 @@
   });
 
   // ── Constants ──
-  const TRACK_REFRESH_MS = 5_000;    // ground-track poll interval
-  const PANEL_REFRESH_MS = 10_000;   // side-panel poll interval
-  const STATUS_REFRESH_MS = 1_000;   // HUD status poll interval
-  const MET_TICK_MS = 1_000;         // local MET clock tick
-  const PANEL_COLORS = ["#00ccff", "#00ffcc", "#cc44ff", "#ffcc00", "#ff4400"];
-  const FSM_PLACEHOLDER = "AWATING DATA";
+  const TRACK_REFRESH_MS = 5_000;
+  const PANEL_REFRESH_MS = 10_000;
+  const STATUS_REFRESH_MS = 1_000;
+  const MET_TICK_MS = 1_000;
+  const PANEL_COLORS = ["#33ff00", "#00ff88", "#ffb000", "#ff6600", "#ff2244"];
+  const FSM_PLACEHOLDER = "AWAITING DATA";
+
+  const AXIS_LABEL_COLOR = "#7a9a5a";
+  const AXIS_TICK_COLOR = "#7a9a5a";
+  const GRID_COLOR = "rgba(51, 255, 0, 0.06)";
+  const AXIS_FONT = { family: "monospace" };
 
   // ── State ──
   let startTime = Date.now();
@@ -38,7 +42,6 @@
     zoomControl: false,
   });
 
-  // Dark tile layer (CartoDB dark_nolabels — free, no key needed)
   L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
     {
@@ -48,19 +51,16 @@
     }
   ).addTo(map);
 
-  // Ground-track polyline group
   let trackLines = L.layerGroup().addTo(map);
 
-  // Satellite marker (red circle)
   const satIcon = L.divIcon({
     className: "sat-icon",
-    html: '<svg width="18" height="18"><circle cx="9" cy="9" r="7" fill="#ff3333" stroke="white" stroke-width="1.5"/></svg>',
+    html: '<svg width="18" height="18"><circle cx="9" cy="9" r="7" fill="#ff2200" stroke="#ffb000" stroke-width="1.5"/></svg>',
     iconSize: [18, 18],
     iconAnchor: [9, 9],
   });
   const satMarker = L.marker([0, 0], { icon: satIcon, zIndex: 1000 }).addTo(map);
 
-  // Satellite label
   satMarker.bindTooltip("HUCSAT", {
     permanent: true,
     direction: "right",
@@ -68,16 +68,14 @@
     className: "sat-tooltip",
   });
 
-  // Start marker (blue diamond)
   const startIcon = L.divIcon({
     className: "sat-icon",
-    html: '<svg width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="2" fill="#00ccff" stroke="white" stroke-width="0.8" transform="rotate(45,6,6)"/></svg>',
+    html: '<svg width="12" height="12"><rect x="1" y="1" width="10" height="10" rx="2" fill="#ffb000" stroke="white" stroke-width="0.8" transform="rotate(45,6,6)"/></svg>',
     iconSize: [12, 12],
     iconAnchor: [6, 6],
   });
   const startMarker = L.marker([0, 0], { icon: startIcon, zIndex: 999 }).addTo(map);
 
-  // Harvard marker (crimson)
   const harvardIcon = L.divIcon({
     className: "sat-icon",
     html: '<svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="crimson" stroke="white" stroke-width="0.8"/></svg>',
@@ -93,16 +91,15 @@
       className: "harvard-tooltip",
     });
 
-  // Inject tooltip styles
   const tooltipStyle = document.createElement("style");
   tooltipStyle.textContent = `
     .sat-tooltip {
       background: transparent; border: none; box-shadow: none;
-      color: #ff6666; font-family: monospace; font-size: 12px; font-weight: bold;
+      color: #ffb000; font-family: monospace; font-size: 14px; font-weight: bold;
     }
     .harvard-tooltip {
       background: transparent; border: none; box-shadow: none;
-      color: crimson; font-family: monospace; font-size: 11px; font-weight: bold;
+      color: crimson; font-family: monospace; font-size: 13px; font-weight: bold;
     }
   `;
   document.head.appendChild(tooltipStyle);
@@ -125,7 +122,7 @@
           datasets: [{
             data: [],
             borderColor: PANEL_COLORS[i],
-            borderWidth: 1.2,
+            borderWidth: 2,
             pointRadius: 0,
             tension: 0.1,
             fill: false,
@@ -139,14 +136,14 @@
           scales: {
             x: {
               display: true,
-              title: { display: true, text: "Time (min)", color: "#667788", font: { size: 9, family: "monospace" } },
-              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
-              grid: { color: "rgba(255,255,255,0.06)" },
+              title: { display: true, text: "Time (min)", color: AXIS_LABEL_COLOR, font: { size: 12, ...AXIS_FONT } },
+              ticks: { color: AXIS_TICK_COLOR, font: { size: 11, ...AXIS_FONT }, maxTicksLimit: 5 },
+              grid: { color: GRID_COLOR },
             },
             y: {
               display: true,
-              ticks: { color: "#667788", font: { size: 8 }, maxTicksLimit: 5 },
-              grid: { color: "rgba(255,255,255,0.06)" },
+              ticks: { color: AXIS_TICK_COLOR, font: { size: 11, ...AXIS_FONT }, maxTicksLimit: 5 },
+              grid: { color: GRID_COLOR },
             },
           },
         },
@@ -177,7 +174,7 @@
       trackLines.clearLayers();
       for (const seg of data.segments) {
         L.polyline(seg, {
-          color: "#00ccff",
+          color: "#33ff00",
           weight: 2,
           opacity: 0.85,
         }).addTo(trackLines);
@@ -207,8 +204,8 @@
         chart.options.scales.y.title = {
           display: true,
           text: p.ylabel,
-          color: "#8899aa",
-          font: { size: 9, family: "monospace" },
+          color: AXIS_LABEL_COLOR,
+          font: { size: 12, ...AXIS_FONT },
         };
         chart.update();
       });
@@ -222,13 +219,12 @@
       const s = await fetchJSON("/api/status");
       document.getElementById("hud-text").textContent =
         "ALT: " + s.alt_km + " km   " +
-        "INC: " + s.inc + "\u00b0   " +
+        "INC: " + s.inc + "°   " +
         "ECC: " + s.ecc + "   " +
         "PERIOD: " + s.period_min + " min   " +
         "ORBITS: " + s.n_orbits;
       document.getElementById("db-count").textContent = "DB: " + s.n_pkts + " pkts";
 
-      // FSM state HUD
       if (s.fsm_state !== undefined) {
         const stateEl = document.getElementById("fsm-state");
         const deplEl = document.getElementById("fsm-depl");
@@ -277,7 +273,6 @@
     const s = String(elapsed % 60).padStart(2, "0");
     document.getElementById("met-clock").textContent = "MET " + h + ":" + m + ":" + s;
 
-    // Blink the live dot
     const dot = document.getElementById("live-dot");
     if (dot) {
       blinkOn = !blinkOn;
@@ -299,11 +294,11 @@
         labels: [],
         datasets: [{
           data: [],
-          borderColor: "#00ddff",
-          backgroundColor: "rgba(0,221,255,0.1)",
-          borderWidth: 1.5,
-          pointRadius: 3,
-          pointBackgroundColor: "#00ddff",
+          borderColor: "#33ff00",
+          backgroundColor: "rgba(51, 255, 0, 0.08)",
+          borderWidth: 2,
+          pointRadius: 4,
+          pointBackgroundColor: "#33ff00",
           stepped: "before",
           fill: true,
         }],
@@ -325,21 +320,21 @@
         scales: {
           x: {
             display: true,
-            title: { display: true, text: "Packet #", color: "#667788", font: { size: 8, family: "monospace" } },
-            ticks: { color: "#667788", font: { size: 7 }, maxTicksLimit: 8 },
-            grid: { color: "rgba(255,255,255,0.06)" },
+            title: { display: true, text: "Packet #", color: AXIS_LABEL_COLOR, font: { size: 12, ...AXIS_FONT } },
+            ticks: { color: AXIS_TICK_COLOR, font: { size: 11, ...AXIS_FONT }, maxTicksLimit: 8 },
+            grid: { color: GRID_COLOR },
           },
           y: {
             display: true,
-            title: { display: true, text: "State", color: "#667788", font: { size: 8, family: "monospace" } },
+            title: { display: true, text: "State", color: AXIS_LABEL_COLOR, font: { size: 12, ...AXIS_FONT } },
             ticks: {
-              color: "#667788",
-              font: { size: 7 },
+              color: AXIS_TICK_COLOR,
+              font: { size: 11, ...AXIS_FONT },
               callback: function (value) {
                 return fsmChart._stateNames ? (fsmChart._stateNames[value] || value) : value;
               },
             },
-            grid: { color: "rgba(255,255,255,0.06)" },
+            grid: { color: GRID_COLOR },
           },
         },
       },
@@ -362,7 +357,6 @@
 
       if (!fsmChart) return;
 
-      // Build unique state → numeric index mapping
       const stateSet = [...new Set(data.history.map(h => String(h.fsm_state)))];
       const stateMap = {};
       stateSet.forEach((s, i) => { stateMap[s] = i; });
@@ -373,7 +367,6 @@
         "State: " + h.fsm_state + "  Depl: " + h.fsm_depl + "  Uptime: " + h.uptime
       );
 
-      // Reverse map for Y-axis labels
       const stateNames = {};
       for (const [name, idx] of Object.entries(stateMap)) {
         stateNames[idx] = name;
@@ -400,11 +393,11 @@
     bestDirChart = new Chart(bestDirCtx.getContext("2d"), {
       type: "doughnut",
       data: {
-        labels: ["+Y", "\u2212X", "\u2212Y", "+X", "N/A"],
+        labels: ["+Y", "−X", "−Y", "+X", "N/A"],
         datasets: [{
           data: [0, 0, 0, 0, 0],
-          backgroundColor: ["#00ccff", "#cc44ff", "#ffcc00", "#ff4400", "#334455"],
-          borderColor: "#0a1628",
+          backgroundColor: ["#33ff00", "#ffb000", "#ff6600", "#00ff88", "#1a1a1a"],
+          borderColor: "#0a0c0a",
           borderWidth: 2,
         }],
       },
@@ -418,10 +411,10 @@
             display: true,
             position: "bottom",
             labels: {
-              color: "#8899aa",
-              font: { size: 9, family: "monospace" },
-              boxWidth: 10,
-              padding: 6,
+              color: "#7a9a5a",
+              font: { size: 12, family: "monospace" },
+              boxWidth: 12,
+              padding: 8,
             },
           },
           tooltip: {
@@ -457,7 +450,6 @@
       bestDirChart.data.datasets[0].backgroundColor = data.colors;
       bestDirChart.update();
 
-      // Update center label with current direction
       const labelEl = document.getElementById("best-dir-current");
       if (labelEl) labelEl.textContent = data.latest_label;
     } catch (e) {
@@ -475,7 +467,6 @@
       const socket = io();
       socket.on("new_packets", function (data) {
         document.getElementById("db-count").textContent = "DB: " + data.count + " pkts";
-        // Refresh panels immediately when new data arrives
         refreshPanels();
         refreshFSM();
         refreshBestDir();
@@ -490,19 +481,16 @@
   // Bootstrap
   // ──────────────────────────────────────────
 
-  // Sync start time with server
   fetchJSON("/api/status").then(function (s) {
     startTime = Date.now() - s.elapsed * 1000;
   }).catch(function () {});
 
-  // Initial data load
   refreshTrack();
   refreshPanels();
   refreshStatus();
   refreshFSM();
   refreshBestDir();
 
-  // Periodic refreshes
   setInterval(refreshTrack, TRACK_REFRESH_MS);
   setInterval(refreshPanels, PANEL_REFRESH_MS);
   setInterval(refreshStatus, STATUS_REFRESH_MS);
@@ -520,7 +508,6 @@
     }, 150);
   }
 
-  // Fix map size after layout settles and when viewport changes.
   setTimeout(scheduleMapResize, 200);
   window.addEventListener("resize", scheduleMapResize);
   window.addEventListener("orientationchange", scheduleMapResize);
