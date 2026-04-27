@@ -314,23 +314,72 @@ body::after {
   min-height: 0;
 }
 
-#approach-meta {
-  flex-shrink: 0;
-  min-height: 14px;
-  margin-top: 2px;
-  color: var(--phosphor-amber);
-  font-size: 11px;
-  font-family: "Courier New", "Consolas", monospace;
-  text-align: center;
+
+#panel-title-globe       { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
+#panel-title-feed        { color: #ffb000; text-shadow: 0 0 8px rgba(255, 176, 0, 0.4); }
+#panel-title-placeholder { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
+
+/* ── Approach Data Panel ── */
+
+#approach-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4px 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#current-pass-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.approach-line {
+  font-size: clamp(11px, 1.1vw, 16px);
+  line-height: 1.4;
   letter-spacing: 1px;
+}
+
+.approach-key {
+  color: var(--phosphor-amber);
+  font-weight: bold;
+  display: inline-block;
+  width: 3.5em;
+}
+
+.approach-val {
+  color: var(--phosphor-green);
+  text-shadow: 0 0 6px rgba(51, 255, 0, 0.35);
+}
+
+#next-approaches-label {
+  text-align: center;
+  font-size: clamp(13px, 1.3vw, 20px);
+  font-weight: bold;
+  color: var(--phosphor-amber);
+  text-shadow: 0 0 10px rgba(255, 176, 0, 0.45);
+  margin: 6px 0 4px;
+  letter-spacing: 2px;
+}
+
+#upcoming-passes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upcoming-line {
+  font-size: clamp(9px, 0.85vw, 13px);
+  color: var(--text-label);
+  letter-spacing: 0.5px;
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-#panel-title-globe       { color: #33ff00; text-shadow: 0 0 8px rgba(51, 255, 0, 0.4); }
-#panel-title-feed        { color: #ffb000; text-shadow: 0 0 8px rgba(255, 176, 0, 0.4); }
-#panel-title-placeholder { color: #3a5a3a; }
 
 /* ── Leaflet custom markers ── */
 

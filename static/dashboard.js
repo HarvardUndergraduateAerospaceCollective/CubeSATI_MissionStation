@@ -146,8 +146,12 @@
   })();
 
   const approachCanvas = document.getElementById("approach-polar");
-  const approachMeta = document.getElementById("approach-meta");
   const approachCtx = approachCanvas ? approachCanvas.getContext("2d") : null;
+
+  // Dynamic refresh state for approach tracking
+  let approachFastMode = false;
+  let approachFastTimer = null;
+  let fastModeExitAt = null;
 
 
   // ──────────────────────────────────────────
@@ -672,27 +676,12 @@
       if (!data || typeof data.az_deg !== "number" || typeof data.el_deg !== "number") {
         if (awaiting) awaiting.classList.remove("hidden");
         if (awaiting) awaiting.textContent = "AWAITING DATA";
-        if (approachMeta) approachMeta.textContent = "AWAITING DATA";
         lastApproach = null;
         drawApproachPolar(null);
         return;
       }
       lastApproach = data;
       drawApproachPolar(lastApproach);
-
-      if (approachMeta) {
-        if (data.visible) {
-          approachMeta.textContent =
-            "AOS " + formatEta(data.pass_start_eta_sec) + "  " +
-            "CPA " + formatEta(data.eta_sec) + "  " +
-            "LOS " + formatEta(data.pass_end_eta_sec) + "  " +
-            "MIN " + data.slant_range_km.toFixed(1) + " km";
-        } else {
-          approachMeta.textContent =
-            "NO LOS  |  NEAREST ETA " + formatEta(data.eta_sec) +
-            "  EL " + data.el_deg.toFixed(1) + "°";
-        }
-      }
 
       if (awaiting) {
         if (data.visible) {
@@ -706,9 +695,104 @@
       console.error("Harvard approach fetch failed:", e);
       if (awaiting) awaiting.classList.remove("hidden");
       if (awaiting) awaiting.textContent = "AWAITING DATA";
-      if (approachMeta) approachMeta.textContent = "AWAITING DATA";
       lastApproach = null;
       drawApproachPolar(null);
+    }
+  }
+
+  async function refreshNextApproaches() {
+    const awaitingFeed = document.getElementById("awaiting-feed");
+    try {
+      const data = await fetchJSON("/api/next_approaches");
+
+      if (!data.current_pass) {
+        if (awaitingFeed) awaitingFeed.classList.remove("hidden");
+        setApproachVal("current-aos", "--:--:--");
+        setApproachVal("current-cpa", "--:--:--");
+        setApproachVal("current-los", "--:--:--");
+        setApproachVal("current-min", "--- km");
+        for (let i = 0; i < 3; i++) {
+          const el = document.getElementById("upcoming-" + i);
+          if (el) el.textContent = "--";
+        }
+        updateApproachFastMode(null);
+        return;
+      }
+
+      if (awaitingFeed) awaitingFeed.classList.add("hidden");
+
+      const cp = data.current_pass;
+      setApproachVal("current-aos", formatEta(cp.aos_eta_sec));
+      setApproachVal("current-cpa", formatEta(cp.cpa_eta_sec));
+      setApproachVal("current-los", formatEta(cp.los_eta_sec));
+      setApproachVal("current-min", cp.min_range_km.toFixed(1) + " km");
+
+      const upcoming = data.upcoming || [];
+      for (let i = 0; i < 3; i++) {
+        const el = document.getElementById("upcoming-" + i);
+        if (!el) continue;
+        if (i < upcoming.length) {
+          const p = upcoming[i];
+          el.textContent =
+            "AOS " + formatEta(p.aos_eta_sec) +
+            "  CPA " + formatEta(p.cpa_eta_sec) +
+            "  LOS " + formatEta(p.los_eta_sec) +
+            "  MIN " + p.min_range_km.toFixed(1) + " km";
+        } else {
+          el.textContent = "--";
+        }
+      }
+
+      updateApproachFastMode(cp);
+    } catch (e) {
+      console.error("Next approaches fetch failed:", e);
+    }
+  }
+
+  function setApproachVal(id, text) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const span = el.querySelector(".approach-val");
+    if (span) { span.textContent = text; }
+  }
+
+  function updateApproachFastMode(currentPass) {
+    if (!currentPass) {
+      exitFastMode();
+      return;
+    }
+
+    var aosEta = currentPass.aos_eta_sec;
+
+    if (aosEta <= 300) {
+      fastModeExitAt = null;
+      enterFastMode();
+    } else if (approachFastMode) {
+      if (fastModeExitAt === null) {
+        fastModeExitAt = Date.now() + 120000;
+      }
+      if (Date.now() >= fastModeExitAt) {
+        exitFastMode();
+      }
+    }
+  }
+
+  function enterFastMode() {
+    if (approachFastMode) return;
+    approachFastMode = true;
+    approachFastTimer = setInterval(function () {
+      refreshHarvardApproach();
+      refreshNextApproaches();
+    }, 1000);
+  }
+
+  function exitFastMode() {
+    if (!approachFastMode) return;
+    approachFastMode = false;
+    fastModeExitAt = null;
+    if (approachFastTimer) {
+      clearInterval(approachFastTimer);
+      approachFastTimer = null;
     }
   }
 
@@ -726,6 +810,7 @@
         refreshFSM();
         refreshBestDir();
         refreshHarvardApproach();
+        refreshNextApproaches();
       });
     } catch (e) {
       // SocketIO not available — no problem, we poll
@@ -747,6 +832,7 @@
   refreshFSM();
   refreshBestDir();
   refreshHarvardApproach();
+  refreshNextApproaches();
 
   setInterval(refreshTrack, TRACK_REFRESH_MS);
   setInterval(refreshPanels, PANEL_REFRESH_MS);
@@ -755,6 +841,7 @@
   setInterval(refreshFSM, PANEL_REFRESH_MS);
   setInterval(refreshBestDir, PANEL_REFRESH_MS);
   setInterval(refreshHarvardApproach, PANEL_REFRESH_MS);
+  setInterval(refreshNextApproaches, PANEL_REFRESH_MS);
 
   function scheduleMapResize() {
     if (scheduleMapResize._timer) {

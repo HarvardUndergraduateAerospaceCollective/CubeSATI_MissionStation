@@ -360,6 +360,67 @@ def api_best_dir():
     return jsonify(panel_best_dir.compute())
 
 
+NEXT_APPROACHES_LOOKAHEAD_ORBITS = 10.0
+
+
+def _find_visible_passes(n_now, lookahead_orbits, n_points=None):
+    """Find all visible passes in a lookahead window.
+
+    Returns list of dicts, each with aos/cpa/los timing, min range,
+    max elevation, and (for the first pass) the az/el path array.
+    """
+    if n_points is None:
+        n_points = int(lookahead_orbits * HARVARD_POINTS_PER_ORBIT)
+
+    with _state_lock:
+        sma, ecc, inc = _state["sma"], _state["ecc"], _state["inc"]
+        raan, argp = _state["raan"], _state["argp"]
+
+    lon, lat, alt_km, t_sec = visualizer.ground_track_with_alt(
+        sma, ecc, inc, raan, argp,
+        n_orbits=lookahead_orbits,
+        n_points=n_points,
+        start_orbit=n_now,
+    )
+
+    separation_deg = _central_angle_deg(lat, lon, HARVARD_LAT, HARVARD_LON)
+    az_arr, el_arr, slant_range_arr = _observer_altaz_many(
+        HARVARD_LAT, HARVARD_LON, lat, lon, alt_km,
+        obs_alt_m=HARVARD_GS_ALT_M,
+    )
+
+    vis_idx = np.where(el_arr > 0.0)[0]
+    passes = []
+
+    if len(vis_idx) == 0:
+        return passes, az_arr, el_arr, slant_range_arr, separation_deg, lat, lon, alt_km, t_sec
+
+    cuts = np.where(np.diff(vis_idx) > 1)[0]
+    seg_starts = np.concatenate(([vis_idx[0]], vis_idx[cuts + 1]))
+    seg_ends = np.concatenate((vis_idx[cuts], [vis_idx[-1]]))
+
+    for s, e in zip(seg_starts, seg_ends):
+        s_i, e_i = int(s), int(e)
+        seg = np.arange(s_i, e_i + 1)
+        cpa_local = int(np.argmin(slant_range_arr[seg]))
+        cpa_idx = int(seg[cpa_local])
+        max_el_local = int(np.argmax(el_arr[seg]))
+        max_el_idx = int(seg[max_el_local])
+
+        passes.append({
+            "aos_eta_sec": round(float(t_sec[s_i] - t_sec[0]), 1),
+            "cpa_eta_sec": round(float(t_sec[cpa_idx] - t_sec[0]), 1),
+            "los_eta_sec": round(float(t_sec[e_i] - t_sec[0]), 1),
+            "min_range_km": round(float(slant_range_arr[cpa_idx]), 1),
+            "max_el_deg": round(float(el_arr[max_el_idx]), 1),
+            "cpa_idx": cpa_idx,
+            "seg_start": s_i,
+            "seg_end": e_i,
+        })
+
+    return passes, az_arr, el_arr, slant_range_arr, separation_deg, lat, lon, alt_km, t_sec
+
+
 @app.route("/api/harvard_approach")
 def api_harvard_approach():
     """Return alt/az pass-arc around the next closest slant-range approach."""
@@ -370,64 +431,20 @@ def api_harvard_approach():
         max(int(lookahead_orbits * HARVARD_POINTS_PER_ORBIT), 600),
     ))
 
-    with _state_lock:
-        sma, ecc, inc = _state["sma"], _state["ecc"], _state["inc"]
-        raan, argp = _state["raan"], _state["argp"]
+    passes, az_arr, el_arr, slant_range_arr, separation_deg, lat, lon, alt_km, t_sec = \
+        _find_visible_passes(n_now, lookahead_orbits, n_points)
 
-    lon, lat, alt_km, t_sec = visualizer.ground_track_with_alt(
-        sma,
-        ecc,
-        inc,
-        raan,
-        argp,
-        n_orbits=lookahead_orbits,
-        n_points=n_points,
-        start_orbit=n_now,
-    )
-
-    separation_deg = _central_angle_deg(lat, lon, HARVARD_LAT, HARVARD_LON)
-    az_arr, el_arr, slant_range_arr = _observer_altaz_many(
-        HARVARD_LAT,
-        HARVARD_LON,
-        lat,
-        lon,
-        alt_km,
-        obs_alt_m=HARVARD_GS_ALT_M,
-    )
-
-    vis_idx = np.where(el_arr > 0.0)[0]
     path = []
     pass_start_eta_sec = None
     pass_end_eta_sec = None
 
-    if len(vis_idx) > 0:
-        # Build contiguous LOS segments and choose the segment that contains
-        # the smallest slant-range point (closest approach while visible).
-        cuts = np.where(np.diff(vis_idx) > 1)[0]
-        seg_starts = np.concatenate(([vis_idx[0]], vis_idx[cuts + 1]))
-        seg_ends = np.concatenate((vis_idx[cuts], [vis_idx[-1]]))
+    if passes:
+        best_pass = min(passes, key=lambda p: p["min_range_km"])
+        idx = best_pass["cpa_idx"]
+        best_seg_start = best_pass["seg_start"]
+        best_seg_end = best_pass["seg_end"]
 
-        best_seg_start = int(seg_starts[0])
-        best_seg_end = int(seg_ends[0])
-        best_idx = best_seg_start
-        best_range = float("inf")
-
-        for s, e in zip(seg_starts, seg_ends):
-            s_i = int(s)
-            e_i = int(e)
-            seg = np.arange(s_i, e_i + 1)
-            local_idx = int(seg[int(np.argmin(slant_range_arr[seg]))])
-            local_range = float(slant_range_arr[local_idx])
-            if local_range < best_range:
-                best_range = local_range
-                best_idx = local_idx
-                best_seg_start = s_i
-                best_seg_end = e_i
-
-        idx = best_idx
         seg = np.arange(best_seg_start, best_seg_end + 1)
-
-        # Keep response light while preserving arc shape.
         step = max(1, len(seg) // 260)
         seg_ds = seg[::step]
         if seg_ds[-1] != seg[-1]:
@@ -446,7 +463,6 @@ def api_harvard_approach():
         pass_end_eta_sec = max(float(t_sec[best_seg_end] - t_sec[0]), 0.0)
         visible = True
     else:
-        # No LOS in lookahead window: still provide nearest geometry point.
         idx = int(np.argmin(slant_range_arr))
         visible = False
 
@@ -472,6 +488,31 @@ def api_harvard_approach():
         pass_end_eta_sec=round(pass_end_eta_sec, 1) if pass_end_eta_sec is not None else None,
         path=path,
     )
+
+
+@app.route("/api/next_approaches")
+def api_next_approaches():
+    """Return the current and next 3 visible passes over Harvard."""
+    n_now = _current_n_orbits()
+    lookahead = float(request.args.get("n_orbits", NEXT_APPROACHES_LOOKAHEAD_ORBITS))
+
+    passes, az_arr, el_arr, slant_range_arr, separation_deg, lat, lon, alt_km, t_sec = \
+        _find_visible_passes(n_now, lookahead)
+
+    result_passes = []
+    for p in passes[:4]:
+        result_passes.append({
+            "aos_eta_sec": p["aos_eta_sec"],
+            "cpa_eta_sec": p["cpa_eta_sec"],
+            "los_eta_sec": p["los_eta_sec"],
+            "min_range_km": p["min_range_km"],
+            "max_el_deg": p["max_el_deg"],
+        })
+
+    current = result_passes[0] if result_passes else None
+    upcoming = result_passes[1:4] if len(result_passes) > 1 else []
+
+    return jsonify(current_pass=current, upcoming=upcoming)
 
 
 # ──────────────────────────────────────────────
