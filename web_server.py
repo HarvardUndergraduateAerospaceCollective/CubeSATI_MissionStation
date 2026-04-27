@@ -45,6 +45,8 @@ _state = {
     "t0": 0.0,
     "live": False,
     "n_orbits": 3.0,
+    "tle_epoch_unix": 0.0,
+    "mean_anomaly_deg": 0.0,
     "orbital": {},
     "period": 0.0,
     "alt_km": 0.0,
@@ -58,12 +60,22 @@ _state = {
 
 def _init_orbital():
     """Fetch TLE and populate global orbital state."""
-    inc, raan, ecc, argp, sma = visualizer.get_elements()
+    tle_state = visualizer.get_orbital_state()
+    inc = tle_state["inclination"]
+    raan = tle_state["raan"]
+    ecc = tle_state["eccentricity"]
+    argp = tle_state["arg_periapsis"]
+    sma = tle_state["semi_major_axis"]
+    mean_anomaly_deg = tle_state["mean_anomaly_deg"]
+    tle_epoch_unix = tle_state["epoch_unix"]
+
     period = visualizer.orbital_period(sma)
     alt_km = (sma - visualizer.R_EARTH) / 1000
     with _state_lock:
         _state.update(
             t0=time.time(),
+            tle_epoch_unix=tle_epoch_unix,
+            mean_anomaly_deg=mean_anomaly_deg,
             inc=inc, raan=raan, ecc=ecc, argp=argp, sma=sma,
             period=period,
             alt_km=alt_km,
@@ -100,13 +112,27 @@ HARVARD_POINTS_PER_ORBIT = 1200
 
 
 def _current_n_orbits():
-    """Return n_orbits that grows with real elapsed time, matching missioncontrol.py."""
+    """Return restart-relative orbit count (kept for panel/history pacing)."""
     with _state_lock:
         t0 = _state["t0"]
         period = _state["period"]
         max_orbits = _state["n_orbits"]
     elapsed = time.time() - t0
     return min(HEAD_START_ORBITS + (elapsed * SPEED_FACTOR) / period if period > 0 else HEAD_START_ORBITS, max_orbits)
+
+
+def _current_phase_orbit():
+    """Return absolute orbit phase anchored to TLE epoch + mean anomaly."""
+    with _state_lock:
+        period = _state["period"]
+        tle_epoch_unix = _state["tle_epoch_unix"]
+        mean_anomaly_deg = _state["mean_anomaly_deg"]
+
+    if period <= 0:
+        return 0.0
+
+    phase_orbits = ((time.time() - tle_epoch_unix) / period) + (mean_anomaly_deg / 360.0)
+    return max(float(phase_orbits), 0.0)
 
 
 def _central_angle_deg(lat_deg: np.ndarray, lon_deg: np.ndarray,
@@ -225,8 +251,8 @@ def index():
 @app.route("/api/track")
 def api_track():
     """Return ground-track polyline as JSON arrays of [lat, lon] pairs."""
-    n_total = _current_n_orbits()
-    n_draw = min(n_total, TRACK_WINDOW_ORBITS)
+    n_total = _current_phase_orbit()
+    n_draw = max(TRACK_WINDOW_ORBITS, 0.1)
     start_orbit = max(n_total - n_draw, 0.0)
     n_points = int(request.args.get("n_points", max(int(n_draw * 500), 200)))
 
@@ -315,7 +341,7 @@ def api_status():
         period = _state["period"]
 
     elapsed = time.time() - t0
-    n_now = _current_n_orbits()
+    n_now = _current_phase_orbit()
 
     try:
         n_pkts = packet_store.packet_count()
@@ -424,7 +450,7 @@ def _find_visible_passes(n_now, lookahead_orbits, n_points=None):
 @app.route("/api/harvard_approach")
 def api_harvard_approach():
     """Return alt/az pass-arc around the next closest slant-range approach."""
-    n_now = _current_n_orbits()
+    n_now = _current_phase_orbit()
     lookahead_orbits = max(float(request.args.get("n_orbits", HARVARD_LOOKAHEAD_ORBITS)), 0.25)
     n_points = int(request.args.get(
         "n_points",
@@ -493,7 +519,7 @@ def api_harvard_approach():
 @app.route("/api/next_approaches")
 def api_next_approaches():
     """Return the current and next 3 visible passes over Harvard."""
-    n_now = _current_n_orbits()
+    n_now = _current_phase_orbit()
     lookahead = float(request.args.get("n_orbits", NEXT_APPROACHES_LOOKAHEAD_ORBITS))
 
     passes, az_arr, el_arr, slant_range_arr, separation_deg, lat, lon, alt_km, t_sec = \
