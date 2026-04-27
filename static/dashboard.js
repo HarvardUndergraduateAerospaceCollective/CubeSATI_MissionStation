@@ -510,7 +510,19 @@
   setInterval(refreshFSM, PANEL_REFRESH_MS);
   setInterval(refreshBestDir, PANEL_REFRESH_MS);
 
-  // Fix map size after layout settles
-  setTimeout(function () { map.invalidateSize(); }, 200);
+  function scheduleMapResize() {
+    if (scheduleMapResize._timer) {
+      clearTimeout(scheduleMapResize._timer);
+    }
+    scheduleMapResize._timer = setTimeout(function () {
+      map.invalidateSize();
+      scheduleMapResize._timer = null;
+    }, 150);
+  }
+
+  // Fix map size after layout settles and when viewport changes.
+  setTimeout(scheduleMapResize, 200);
+  window.addEventListener("resize", scheduleMapResize);
+  window.addEventListener("orientationchange", scheduleMapResize);
 
 })();
