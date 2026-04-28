@@ -326,7 +326,7 @@ body::after {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 4px 8px;
+  padding: 0 8px 4px;
   min-height: 0;
   overflow: hidden;
 }
@@ -338,7 +338,7 @@ body::after {
 }
 
 .approach-line {
-  font-size: clamp(11px, 1.1vw, 16px);
+  font-size: clamp(14px, 1.4vw, 21px);
   line-height: 1.4;
   letter-spacing: 1px;
 }
@@ -355,14 +355,19 @@ body::after {
   text-shadow: 0 0 6px rgba(51, 255, 0, 0.35);
 }
 
+#current-approaches-label,
 #next-approaches-label {
   text-align: center;
-  font-size: clamp(13px, 1.3vw, 20px);
+  font-size: clamp(17px, 1.7vw, 26px);
   font-weight: bold;
   color: var(--phosphor-amber);
   text-shadow: 0 0 10px rgba(255, 176, 0, 0.45);
   margin: 6px 0 4px;
   letter-spacing: 2px;
+}
+
+#current-approaches-label {
+  margin-top: 3px;
 }
 
 #upcoming-passes {
@@ -372,7 +377,7 @@ body::after {
 }
 
 .upcoming-line {
-  font-size: clamp(9px, 0.85vw, 13px);
+  font-size: clamp(14px, 0.75vw, 14px);
   color: var(--text-label);
   letter-spacing: 0.5px;
   line-height: 1.4;
