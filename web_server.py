@@ -16,6 +16,7 @@ Then open http://localhost:5000 (or your Pi's IP) in a browser.
 import argparse
 import logging
 import time
+from datetime import datetime, timezone
 from threading import Lock
 
 import numpy as np
@@ -30,6 +31,13 @@ import panel_power
 import panel_magnetometer
 import panel_best_dir
 import packet_store
+
+# ──────────────────────────────────────────────
+# Mission epoch — set this to the deployment timestamp once known.
+# Format: ISO-8601 with timezone, e.g. "2026-06-15T14:32:00+00:00"
+# Leave as None until the satellite separates; MET will show --:--:-- until then.
+# ──────────────────────────────────────────────
+MISSION_EPOCH_UTC = None
 
 log = logging.getLogger(__name__)
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -248,6 +256,24 @@ def index():
                            cache_bust=int(time.time()))
 
 
+def _split_at_dateline(lon, lat):
+    """Split lon/lat arrays into [lat, lon] segments at ±180° wrap-arounds."""
+    segments = []
+    cur = []
+    for i in range(len(lon)):
+        if i > 0 and abs(lon[i] - lon[i - 1]) > 180:
+            if len(cur) >= 2:
+                segments.append(cur)
+            cur = []
+        cur.append([round(float(lat[i]), 4), round(float(lon[i]), 4)])
+    if len(cur) >= 2:
+        segments.append(cur)
+    return segments
+
+
+FUTURE_TRACK_ORBITS = 1.0
+
+
 @app.route("/api/track")
 def api_track():
     """Return ground-track polyline as JSON arrays of [lat, lon] pairs."""
@@ -267,23 +293,21 @@ def api_track():
         start_orbit=start_orbit,
     )
 
-    # Split at ±180° wrap-arounds for Leaflet polyline segments
-    segments = []
-    cur = []
-    for i in range(len(lon)):
-        if i > 0 and abs(lon[i] - lon[i - 1]) > 180:
-            if len(cur) >= 2:
-                segments.append(cur)
-            cur = []
-        cur.append([round(float(lat[i]), 4), round(float(lon[i]), 4)])
-    if len(cur) >= 2:
-        segments.append(cur)
+    segments = _split_at_dateline(lon, lat)
 
-    # Current position = last point
     current = [round(float(lat[-1]), 4), round(float(lon[-1]), 4)]
     start = [round(float(lat[0]), 4), round(float(lon[0]), 4)]
 
-    return jsonify(segments=segments, current=current, start=start)
+    future_lon, future_lat, _ = visualizer.ground_track(
+        sma, ecc, inc, raan, argp,
+        n_orbits=FUTURE_TRACK_ORBITS,
+        n_points=max(int(FUTURE_TRACK_ORBITS * 500), 300),
+        start_orbit=n_total,
+    )
+    future_segments = _split_at_dateline(future_lon, future_lat)
+
+    return jsonify(segments=segments, current=current, start=start,
+                   future_segments=future_segments)
 
 
 @app.route("/api/panels")
@@ -334,14 +358,21 @@ def api_panels():
 def api_status():
     """Return HUD info: orbital params, MET, packet count."""
     with _state_lock:
-        t0 = _state["t0"]
         alt_km = _state["alt_km"]
         inc = _state["inc"]
         ecc = _state["ecc"]
         period = _state["period"]
 
-    elapsed = time.time() - t0
-    n_now = _current_phase_orbit()
+    # Mission Elapsed Time — anchored to MISSION_EPOCH_UTC, null until deployed.
+    met_elapsed = None
+    orbits_since_deploy = None
+    if MISSION_EPOCH_UTC is not None:
+        epoch = datetime.fromisoformat(MISSION_EPOCH_UTC)
+        met_secs = (datetime.now(timezone.utc) - epoch).total_seconds()
+        if met_secs >= 0:
+            met_elapsed = round(met_secs)
+            if period > 0:
+                orbits_since_deploy = round(met_secs / period, 3)
 
     try:
         n_pkts = packet_store.packet_count()
@@ -359,8 +390,8 @@ def api_status():
         inc=round(inc, 2),
         ecc=round(ecc, 6),
         period_min=round(period / 60, 1),
-        n_orbits=round(n_now, 3),
-        elapsed=round(elapsed),
+        met_elapsed=met_elapsed,
+        orbits_since_deploy=orbits_since_deploy,
         n_pkts=n_pkts,
         live=_state["live"],
         fsm_state=fsm_state,

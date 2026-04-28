@@ -14,7 +14,7 @@
 
   // ── Constants ──
   const TRACK_REFRESH_MS = 5_000;
-  const GLOBE_PATH_REFRESH_MS = 300_000;
+  const GLOBE_PATH_REFRESH_MS = 20_000;
   const PANEL_REFRESH_MS = 10_000;
   const STATUS_REFRESH_MS = 1_000;
   const MET_TICK_MS = 1_000;
@@ -27,10 +27,11 @@
   const AXIS_FONT = { family: "monospace" };
 
   // ── State ──
-  let startTime = Date.now();
+  let startTime = null;
   let blinkOn = true;
   let lastApproach = null;
   let nextGlobePathUpdateAt = 0;
+  let approachAbsTimes = null;   // absolute ms timestamps for countdown display
 
   // ──────────────────────────────────────────
   // Leaflet map
@@ -55,6 +56,7 @@
   ).addTo(map);
 
   let trackLines = L.layerGroup().addTo(map);
+  let futureTrackLines = L.layerGroup().addTo(map);
 
   const satIcon = L.divIcon({
     className: "sat-icon",
@@ -94,6 +96,17 @@
       className: "harvard-tooltip",
     });
 
+  const R_EARTH_KM = 6371;
+  const losCircle = L.circle([42.3736, -71.1097], {
+    radius: 0,
+    color: "rgba(255, 80, 80, 0.35)",
+    fillColor: "rgba(255, 60, 60, 0.08)",
+    fillOpacity: 1,
+    weight: 1,
+    dashArray: "4 4",
+    interactive: false,
+  }).addTo(map);
+
   const tooltipStyle = document.createElement("style");
   tooltipStyle.textContent = `
     .sat-tooltip {
@@ -126,18 +139,22 @@
       .atmosphereColor("#33ff00")
       .atmosphereAltitude(0.12)
       .pathsData([])
-      .pathPoints(function (seg) { return seg; })
+      .pathPoints(function (d) { return d.points; })
       .pathPointLat(function (p) { return p[0]; })
       .pathPointLng(function (p) { return p[1]; })
-      .pathColor(function () { return "#33ff00"; })
-      .pathStroke(1.5)
-      .pathDashLength(1)
-      .pathDashGap(0)
+      .pathColor(function (d) { return d.future ? "rgba(51,255,0,0.35)" : "#33ff00"; })
+      .pathStroke(function (d) { return d.future ? 1.0 : 1.5; })
+      .pathDashLength(function (d) { return d.future ? 3 : 1; })
+      .pathDashGap(function (d) { return d.future ? 3 : 0; })
       .pointsData([])
       .pointColor(function () { return "#ff2200"; })
       .pointAltitude(0.02)
       .pointRadius(0.4)
       .pointOfView({ lat: 20, lng: -74, altitude: 2 });
+
+    var controls = globeViz.controls();
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.4;
 
     var ro = new ResizeObserver(function () {
       globeViz.width(el.clientWidth).height(el.clientHeight);
@@ -223,6 +240,10 @@
     const mm = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
     const ss = String(sec % 60).padStart(2, "0");
     return hh + ":" + mm + ":" + ss;
+  }
+
+  function etaFromAbs(absMs) {
+    return formatEta((absMs - Date.now()) / 1000);
   }
 
   function drawApproachPolar(pred) {
@@ -348,24 +369,25 @@
       }
     }
 
-    // Mark closest approach point.
-    const az = pred.az_deg;
-    const el = pred.el_deg;
-    const clampedEl = Math.max(0, Math.min(90, el));
-    const rr = ((90 - clampedEl) / 90) * radius;
-    const azRad = az * Math.PI / 180;
-    const px = cx + rr * Math.sin(azRad);
-    const py = cy - rr * Math.cos(azRad);
+    // Mark closest approach point (only when a real LOS pass exists).
+    if (pred.visible) {
+      const az = pred.az_deg;
+      const el = pred.el_deg;
+      const clampedEl = Math.max(0, Math.min(90, el));
+      const rr = ((90 - clampedEl) / 90) * radius;
+      const azRad = az * Math.PI / 180;
+      const px = cx + rr * Math.sin(azRad);
+      const py = cy - rr * Math.cos(azRad);
 
-    const color = pred.visible ? "#33ff00" : "#ff6600";
-    approachCtx.fillStyle = color;
-    approachCtx.beginPath();
-    approachCtx.arc(px, py, 4.5, 0, Math.PI * 2);
-    approachCtx.fill();
+      approachCtx.fillStyle = "#33ff00";
+      approachCtx.beginPath();
+      approachCtx.arc(px, py, 4.5, 0, Math.PI * 2);
+      approachCtx.fill();
 
-    approachCtx.strokeStyle = "#ffffff";
-    approachCtx.lineWidth = 1;
-    approachCtx.stroke();
+      approachCtx.strokeStyle = "#ffffff";
+      approachCtx.lineWidth = 1;
+      approachCtx.stroke();
+    }
   }
 
   async function refreshTrack() {
@@ -379,12 +401,29 @@
           opacity: 0.85,
         }).addTo(trackLines);
       }
+
+      futureTrackLines.clearLayers();
+      var futureSegs = data.future_segments || [];
+      for (var fi = 0; fi < futureSegs.length; fi++) {
+        L.polyline(futureSegs[fi], {
+          color: "#33ff00",
+          weight: 1.5,
+          opacity: 0.45,
+          dashArray: "6 6",
+        }).addTo(futureTrackLines);
+      }
+
       if (data.current) satMarker.setLatLng(data.current);
       if (data.start) startMarker.setLatLng(data.start);
       if (globeViz) {
         const now = Date.now();
         if (now >= nextGlobePathUpdateAt) {
-          globeViz.pathsData(data.segments || []);
+          var allPaths = (data.segments || []).map(function (s) {
+            return { points: s, future: false };
+          }).concat(futureSegs.map(function (s) {
+            return { points: s, future: true };
+          }));
+          globeViz.pathsData(allPaths);
           nextGlobePathUpdateAt = now + GLOBE_PATH_REFRESH_MS;
         }
         if (data.current) {
@@ -427,13 +466,27 @@
   async function refreshStatus() {
     try {
       const s = await fetchJSON("/api/status");
+      if (s.met_elapsed !== null && s.met_elapsed !== undefined) {
+        startTime = Date.now() - s.met_elapsed * 1000;
+      } else {
+        startTime = null;
+      }
+
+      const orbitsDisplay = (s.orbits_since_deploy !== null && s.orbits_since_deploy !== undefined)
+        ? s.orbits_since_deploy
+        : "---";
       document.getElementById("hud-text").textContent =
         "ALT: " + s.alt_km + " km   " +
         "INC: " + s.inc + "°   " +
         "ECC: " + s.ecc + "   " +
         "PERIOD: " + s.period_min + " min   " +
-        "ORBITS: " + s.n_orbits;
+        "ORBITS: " + orbitsDisplay;
       document.getElementById("db-count").textContent = "DB: " + s.n_pkts + " pkts";
+
+      if (s.alt_km > 0) {
+        var theta = Math.acos(R_EARTH_KM / (R_EARTH_KM + s.alt_km));
+        losCircle.setRadius(R_EARTH_KM * theta * 1000);
+      }
 
       if (s.fsm_state !== undefined) {
         const stateEl = document.getElementById("fsm-state");
@@ -477,16 +530,47 @@
   // ──────────────────────────────────────────
 
   function tickMET() {
+    const dot = document.getElementById("live-dot");
+    if (dot) {
+      blinkOn = !blinkOn;
+      dot.style.opacity = blinkOn ? "1" : "0";
+    }
+
+    if (startTime === null) {
+      document.getElementById("met-clock").textContent = "MET --:--:--";
+      return;
+    }
+
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const h = String(Math.floor(elapsed / 3600)).padStart(2, "0");
     const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
     const s = String(elapsed % 60).padStart(2, "0");
     document.getElementById("met-clock").textContent = "MET " + h + ":" + m + ":" + s;
+  }
 
-    const dot = document.getElementById("live-dot");
-    if (dot) {
-      blinkOn = !blinkOn;
-      dot.style.opacity = blinkOn ? "1" : "0";
+
+  // ──────────────────────────────────────────
+  // Approach countdown tick (runs every second, no server call)
+  // ──────────────────────────────────────────
+
+  function tickApproach() {
+    if (!approachAbsTimes) return;
+    const cp = approachAbsTimes.current;
+    setApproachVal("current-aos", etaFromAbs(cp.aos));
+    setApproachVal("current-cpa", etaFromAbs(cp.cpa));
+    setApproachVal("current-los", etaFromAbs(cp.los));
+
+    for (let i = 0; i < 3; i++) {
+      const el = document.getElementById("upcoming-" + i);
+      if (!el) continue;
+      if (i < approachAbsTimes.upcoming.length) {
+        const p = approachAbsTimes.upcoming[i];
+        el.textContent =
+          "AOS " + etaFromAbs(p.aos) +
+          "  CPA " + etaFromAbs(p.cpa) +
+          "  LOS " + etaFromAbs(p.los) +
+          "  MIN " + p.min_range_km.toFixed(1) + " km";
+      }
     }
   }
 
@@ -707,6 +791,7 @@
 
       if (!data.current_pass) {
         if (awaitingFeed) awaitingFeed.classList.remove("hidden");
+        approachAbsTimes = null;
         setApproachVal("current-aos", "--:--:--");
         setApproachVal("current-cpa", "--:--:--");
         setApproachVal("current-los", "--:--:--");
@@ -722,26 +807,25 @@
       if (awaitingFeed) awaitingFeed.classList.add("hidden");
 
       const cp = data.current_pass;
-      setApproachVal("current-aos", formatEta(cp.aos_eta_sec));
-      setApproachVal("current-cpa", formatEta(cp.cpa_eta_sec));
-      setApproachVal("current-los", formatEta(cp.los_eta_sec));
+      const fetchTime = Date.now();
+      approachAbsTimes = {
+        current: {
+          aos: fetchTime + cp.aos_eta_sec * 1000,
+          cpa: fetchTime + cp.cpa_eta_sec * 1000,
+          los: fetchTime + cp.los_eta_sec * 1000,
+          min_range_km: cp.min_range_km,
+        },
+        upcoming: (data.upcoming || []).slice(0, 3).map(function (p) {
+          return {
+            aos: fetchTime + p.aos_eta_sec * 1000,
+            cpa: fetchTime + p.cpa_eta_sec * 1000,
+            los: fetchTime + p.los_eta_sec * 1000,
+            min_range_km: p.min_range_km,
+          };
+        }),
+      };
       setApproachVal("current-min", cp.min_range_km.toFixed(1) + " km");
-
-      const upcoming = data.upcoming || [];
-      for (let i = 0; i < 3; i++) {
-        const el = document.getElementById("upcoming-" + i);
-        if (!el) continue;
-        if (i < upcoming.length) {
-          const p = upcoming[i];
-          el.textContent =
-            "AOS " + formatEta(p.aos_eta_sec) +
-            "  CPA " + formatEta(p.cpa_eta_sec) +
-            "  LOS " + formatEta(p.los_eta_sec) +
-            "  MIN " + p.min_range_km.toFixed(1) + " km";
-        } else {
-          el.textContent = "--";
-        }
-      }
+      tickApproach();
 
       updateApproachFastMode(cp);
     } catch (e) {
@@ -823,7 +907,9 @@
   // ──────────────────────────────────────────
 
   fetchJSON("/api/status").then(function (s) {
-    startTime = Date.now() - s.elapsed * 1000;
+    if (s.met_elapsed !== null && s.met_elapsed !== undefined) {
+      startTime = Date.now() - s.met_elapsed * 1000;
+    }
   }).catch(function () {});
 
   refreshTrack();
@@ -838,6 +924,7 @@
   setInterval(refreshPanels, PANEL_REFRESH_MS);
   setInterval(refreshStatus, STATUS_REFRESH_MS);
   setInterval(tickMET, MET_TICK_MS);
+  setInterval(tickApproach, MET_TICK_MS);
   setInterval(refreshFSM, PANEL_REFRESH_MS);
   setInterval(refreshBestDir, PANEL_REFRESH_MS);
   setInterval(refreshHarvardApproach, PANEL_REFRESH_MS);
