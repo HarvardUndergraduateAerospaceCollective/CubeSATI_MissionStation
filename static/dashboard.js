@@ -863,10 +863,7 @@
   function enterFastMode() {
     if (approachFastMode) return;
     approachFastMode = true;
-    approachFastTimer = setInterval(function () {
-      refreshHarvardApproach();
-      refreshNextApproaches();
-    }, 1000);
+    approachFastTimer = setInterval(refreshHarvardApproach, 1000);
   }
 
   function exitFastMode() {
@@ -927,7 +924,7 @@
   setInterval(refreshFSM, PANEL_REFRESH_MS);
   setInterval(refreshBestDir, PANEL_REFRESH_MS);
   setInterval(refreshHarvardApproach, PANEL_REFRESH_MS);
-  setInterval(refreshNextApproaches, PANEL_REFRESH_MS);
+  setInterval(refreshNextApproaches, GLOBE_PATH_REFRESH_MS);
 
   function scheduleMapResize() {
     if (scheduleMapResize._timer) {
