@@ -150,11 +150,10 @@
       .pointColor(function () { return "#ff2200"; })
       .pointAltitude(0.02)
       .pointRadius(0.4)
-      .pointOfView({ lat: 20, lng: -74, altitude: 2 });
+      .pointOfView({ lat: 38, lng: -96, altitude: 2 });
 
     var controls = globeViz.controls();
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.4;
+    controls.autoRotate = false;
 
     var ro = new ResizeObserver(function () {
       globeViz.width(el.clientWidth).height(el.clientHeight);
