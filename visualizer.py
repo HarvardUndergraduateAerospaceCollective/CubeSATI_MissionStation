@@ -154,20 +154,27 @@ def ground_track_with_alt(
     Compute sub-satellite ground track with altitude.
     Returns (longitude, latitude, altitude_km, time_seconds) arrays.
     """
-    lon, lat, t = ground_track(
-        semi_major_axis,
-        eccentricity,
-        inclination,
-        raan,
-        arg_periapsis,
-        n_orbits=n_orbits,
-        n_points=n_points,
-        start_orbit=start_orbit,
-    )
+    inc = RAD(inclination)
+    Omega = RAD(raan)
+    omega = RAD(arg_periapsis)
 
     period = orbital_period(semi_major_axis)
+    start_t = max(start_orbit, 0.0) * period
+    t = np.linspace(start_t, start_t + n_orbits * period, n_points)
     M = 2 * np.pi / period * t
     E = kepler_equation(M, eccentricity)
+
+    nu = 2 * np.arctan2(
+        np.sqrt(1 + eccentricity) * np.sin(E / 2),
+        np.sqrt(1 - eccentricity) * np.cos(E / 2),
+    )
+    u = omega + nu
+    lat = np.arcsin(np.sin(inc) * np.sin(u))
+    lon = np.arctan2(np.sin(u) * np.cos(inc), np.cos(u)) + Omega
+    lon -= EARTH_ROT_RATE * t
+    lon = (DEG(lon) + 180) % 360 - 180
+    lat = DEG(lat)
+
     r = semi_major_axis * (1 - eccentricity * np.cos(E))
     alt_km = (r - R_EARTH) / 1000.0
 

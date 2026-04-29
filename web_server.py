@@ -158,11 +158,18 @@ def _central_angle_deg(lat_deg: np.ndarray, lon_deg: np.ndarray,
     return np.degrees(np.arccos(cos_c))
 
 
+_WGS84_E2 = 0.00669437999014  # first eccentricity squared
+
+def _geodetic_to_geocentric_lat(lat_rad):
+    """Convert geodetic latitude to geocentric (spherical) latitude."""
+    return np.arctan((1 - _WGS84_E2) * np.tan(lat_rad))
+
+
 def _observer_altaz(obs_lat_deg: float, obs_lon_deg: float,
                     sat_lat_deg: float, sat_lon_deg: float,
                     sat_alt_km: float, obs_alt_m: float = 0.0):
     """Convert satellite geodetic position to observer azimuth/elevation/range."""
-    obs_lat = np.radians(obs_lat_deg)
+    obs_lat = _geodetic_to_geocentric_lat(np.radians(obs_lat_deg))
     obs_lon = np.radians(obs_lon_deg)
     sat_lat = np.radians(sat_lat_deg)
     sat_lon = np.radians(sat_lon_deg)
@@ -206,7 +213,7 @@ def _observer_altaz_many(obs_lat_deg: float, obs_lon_deg: float,
                          sat_lat_deg: np.ndarray, sat_lon_deg: np.ndarray,
                          sat_alt_km: np.ndarray, obs_alt_m: float = 0.0):
     """Vectorized observer azimuth/elevation/slant-range for many satellite points."""
-    obs_lat = np.radians(obs_lat_deg)
+    obs_lat = _geodetic_to_geocentric_lat(np.radians(obs_lat_deg))
     obs_lon = np.radians(obs_lon_deg)
     sat_lat = np.radians(sat_lat_deg)
     sat_lon = np.radians(sat_lon_deg)
@@ -581,6 +588,8 @@ import random as _random
 @app.route("/api/test/write", methods=["POST"])
 def api_test_write():
     """Insert a fake packet + telemetry rows (stress test only)."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify(ok=False, error="forbidden"), 403
     _fsm_states = ["nominal", "safe", "detumble", "deploy", "standby"]
     pkt_id = packet_store.store_packet(
         satellite="STRESS-TEST",
@@ -609,6 +618,8 @@ def api_test_write():
 @app.route("/api/test/cleanup", methods=["POST"])
 def api_test_cleanup():
     """Remove all rows inserted by stress tests."""
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return jsonify(ok=False, error="forbidden"), 403
     try:
         from packet_store import _get_conn
         conn = _get_conn()

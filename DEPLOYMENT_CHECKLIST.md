@@ -64,7 +64,22 @@ Controls MET clock and orbit counter on the dashboard. While `None`, MET display
 
 Used in topocentric az/el calculations for approach predictions. A few meters of error is negligible for pass predictions, but worth confirming.
 
-### 6. Slack Webhook — `db_backup.py`
+### 6. Backup Cron Job — Raspberry Pi
+
+Automated backups run every 3 hours via cron. To enable:
+
+```bash
+crontab -e
+```
+
+Add:
+```
+0 */3 * * * /usr/bin/python3 /home/huac/Desktop/HUCSat-GroundStationVisual/db_backup.py >> /dev/null 2>&1
+```
+
+Backs up to both `/mnt/cubesat-backup` (USB drive, exFAT, auto-mounts via systemd) and Google Drive via rclone remote `dbbackup`.
+
+### 7. Slack Webhook — `db_backup.py`
 
 | | |
 |---|---|
