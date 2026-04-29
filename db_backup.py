@@ -26,8 +26,11 @@ Setup (on the Raspberry Pi):
        > (follow OAuth prompts)
      Then copy ~/.config/rclone/rclone.conf to the Pi.
 
-  3. Format & mount the backup SD card:
-       sudo mkfs.exfat -L CUBESAT_BK /dev/sdX1
+  3. Mount the backup USB drive (already formatted exFAT):
+       sudo mkdir -p /mnt/cubesat-backup
+       sudo mount /dev/sdb1 /mnt/cubesat-backup
+       # For auto-mount on boot, get the UUID and add to fstab:
+       sudo blkid /dev/sdb1
        echo 'UUID=<uuid>  /mnt/cubesat-backup  exfat  defaults,nofail,noatime  0  0' | sudo tee -a /etc/fstab
        sudo mkdir -p /mnt/cubesat-backup && sudo mount -a
 
@@ -66,7 +69,7 @@ SD_BACKUP_DIR = SD_MOUNT_POINT / "mission_backups"
 SD_RETENTION_DAYS = 30
 SD_LOW_SPACE_MB = 100
 
-RCLONE_REMOTE = "gdrive"
+RCLONE_REMOTE = "dbbackup"
 RCLONE_DEST = f"{RCLONE_REMOTE}:CubeSAT-Backups"
 RCLONE_TIMEOUT = 300
 CLOUD_RETENTION_DAYS = 90
