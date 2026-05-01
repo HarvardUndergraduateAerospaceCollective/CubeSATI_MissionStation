@@ -18,7 +18,7 @@
   const PANEL_REFRESH_MS = 10_000;
   const STATUS_REFRESH_MS = 1_000;
   const MET_TICK_MS = 1_000;
-  const PANEL_COLORS = ["#33ff00", "#00ff88", "#ffb000", "#ff6600", "#ff2244"];
+  const PANEL_COLORS = ["#33ff00", "#33ff00", "#33ff00", "#33ff00", "#33ff00"];
   const FSM_PLACEHOLDER = "AWAITING DATA";
 
   const AXIS_LABEL_COLOR = "#7a9a5a";

@@ -427,7 +427,7 @@ def main():
             print("ERROR: CUBESAT_SLACK_WEBHOOK is not set.")
             return
         notify_slack("testing ignore", "info")
-        print("Test message sent — check your Slack channel.")
+        print("Test message sent - check your Slack channel.")
         return
 
     do_local = True
