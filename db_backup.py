@@ -413,10 +413,21 @@ def main():
     parser.add_argument("--cloud", action="store_true", help="Cloud backup only")
     parser.add_argument("--dry-run", action="store_true", help="Log without executing")
     parser.add_argument("--status", action="store_true", help="Check backup infrastructure")
+    parser.add_argument("--test-slack", action="store_true", help="Send a test Slack message")
     args = parser.parse_args()
 
     if args.status:
         check_status()
+        return
+
+    if args.test_slack:
+        log = setup_logging()
+        webhook = os.environ.get("CUBESAT_SLACK_WEBHOOK", "")
+        if not webhook:
+            print("ERROR: CUBESAT_SLACK_WEBHOOK is not set.")
+            return
+        notify_slack("testing ignore", "info")
+        print("Test message sent — check your Slack channel.")
         return
 
     do_local = True
