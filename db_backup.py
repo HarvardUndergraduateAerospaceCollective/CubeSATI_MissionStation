@@ -111,7 +111,7 @@ def notify_slack(message: str, level: str = "warning"):
     """Post to Slack webhook. No-op when CUBESAT_SLACK_WEBHOOK is unset."""
     if not SLACK_WEBHOOK_URL:
         return
-    emoji = {"info": ":", "warning": ":", "error": ":"}.get(level, ":")
+    emoji = {"info": ":white_check_mark:", "warning": ":warning:", "error": ":rotating_light:"}.get(level, ":bell:")
     payload = json.dumps({
         "text": f"{emoji} *CubeSAT Backup* — {message}",
         "username": "MissionStation Backup",

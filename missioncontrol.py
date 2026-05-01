@@ -469,7 +469,10 @@ def launch(live: bool = False, n_orbits: float = 3, head_start_orbits: float = 1
     fig1 = plt.gcf()
     figManager = plt.get_current_fig_manager()
     figManager.full_screen_toggle()
-    fig1.canvas.window().statusBar().setVisible(False)
+    try:
+        fig1.canvas.window().statusBar().setVisible(False)
+    except AttributeError:
+        pass
     plt.show()
 
 

@@ -445,7 +445,7 @@ def api_panels():
         orbital = _state["orbital"]
 
     panels = []
-    for mod in [panel_altitude, panel_signal, panel_temperature, panel_power, panel_magnetometer]:
+    for mod in [panel_altitude, panel_signal, panel_magnetometer, panel_temperature, panel_power]:
         if getattr(mod, "SOURCE", "orbital") == "telemetry":
             x, y = mod.compute()
         else:
@@ -494,6 +494,8 @@ def api_status():
     orbits_since_deploy = None
     if MISSION_EPOCH_UTC is not None:
         epoch = datetime.fromisoformat(MISSION_EPOCH_UTC)
+        if epoch.tzinfo is None:
+            epoch = epoch.replace(tzinfo=timezone.utc)
         met_secs = (datetime.now(timezone.utc) - epoch).total_seconds()
         if met_secs >= 0:
             met_elapsed = round(met_secs)
