@@ -10,7 +10,7 @@ import packet_store
 TITLE          = "GYROSCOPE"
 Y_LABEL        = "\u00b0/s"
 X_LABEL        = "Time (min)"
-COLOR          = "#ff6600"
+COLOR          = "#33ff00"
 SOURCE         = "telemetry"
 TELEMETRY_KEY  = "FSM_av_0"
 

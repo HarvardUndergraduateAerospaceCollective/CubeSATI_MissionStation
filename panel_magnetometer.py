@@ -10,7 +10,7 @@ import packet_store
 TITLE          = "MAGNETOMETER"
 Y_LABEL        = "\u00b5T"
 X_LABEL        = "Time (min)"
-COLOR          = "#ffb000"
+COLOR          = "#33ff00"
 SOURCE         = "telemetry"
 TELEMETRY_KEY  = "FSM_magn_v_0"
 

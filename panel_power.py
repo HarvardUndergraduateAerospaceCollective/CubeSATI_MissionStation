@@ -10,7 +10,7 @@ import packet_store
 TITLE          = "POWER"
 Y_LABEL        = "Volts (V)"
 X_LABEL        = "Time (min)"
-COLOR          = "#ff2244"
+COLOR          = "#33ff00"
 SOURCE         = "telemetry"
 TELEMETRY_KEY  = "FSM_batt_v"
 

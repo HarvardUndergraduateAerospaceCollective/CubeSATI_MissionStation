@@ -10,7 +10,7 @@ import packet_store
 TITLE   = "SIGNAL"
 Y_LABEL = "RSSI (dBm)"
 X_LABEL = "Time (min)"
-COLOR   = "#00ff88"
+COLOR   = "#33ff00"
 SOURCE  = "telemetry"
 
 
