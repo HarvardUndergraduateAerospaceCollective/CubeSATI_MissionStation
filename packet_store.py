@@ -163,6 +163,17 @@ def packet_count(satellite: Optional[str] = None) -> int:
         return cur.fetchone()[0]
 
 
+def packets_in_window(since_utc: str, until_utc: str) -> list[dict]:
+    """Return packets received between two ISO-8601 UTC timestamps."""
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT * FROM packets WHERE received_at >= ? AND received_at <= ? "
+            "ORDER BY received_at",
+            (since_utc, until_utc),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def recent_packets(n: int = 20, satellite: Optional[str] = None) -> list[dict]:
     """Return the *n* most recent packets as dicts."""
     with _cursor() as cur:

@@ -14,10 +14,13 @@ Then open http://localhost:5000 (or your Pi's IP) in a browser.
 """
 
 import argparse
+import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from threading import Lock
+from urllib.request import Request, urlopen
 
 import numpy as np
 from flask import Flask, jsonify, render_template, request
@@ -251,6 +254,122 @@ def _observer_altaz_many(obs_lat_deg: float, obs_lon_deg: float,
     slant_range_km = np.sqrt(dx * dx + dy * dy + dz * dz) / 1000.0
 
     return az_deg, el_deg, slant_range_km
+
+
+# ──────────────────────────────────────────────
+# Slack notifications
+# ──────────────────────────────────────────────
+
+def _notify_slack(message: str, level: str = "info"):
+    """Post to Slack webhook. No-op when CUBESAT_SLACK_WEBHOOK is unset."""
+    webhook = os.environ.get("CUBESAT_SLACK_WEBHOOK", "")
+    if not webhook:
+        return
+    payload = json.dumps({
+        "text": f"*HUCSAT Mission Control* — {message}",
+        "username": "MissionStation",
+    })
+    try:
+        req = Request(webhook, data=payload.encode(),
+                      headers={"Content-Type": "application/json"})
+        urlopen(req, timeout=10)
+    except Exception as exc:
+        log.debug("Slack notify failed: %s", exc)
+
+
+# ──────────────────────────────────────────────
+# Pass watcher (upcoming pass alerts + pass summaries)
+# ──────────────────────────────────────────────
+
+PASS_WARN_MINUTES = 10
+_PASS_WATCHER_INTERVAL = 60   # seconds between checks
+
+_alerted_pass_times: set = set()   # AOS unix timestamps (rounded) already alerted
+_in_pass = [False]
+_pass_start_utc = [None]           # ISO string when current pass began
+
+
+def _fmt_eta(seconds: float) -> str:
+    s = max(0, int(seconds))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}h {m:02d}m" if h else f"{m}m {sec:02d}s"
+
+
+def _check_pass_events():
+    n_now = _current_phase_orbit()
+    passes, az_arr, el_arr, slant_range_arr, sep_deg, lat, lon, alt_km, t_sec = \
+        _find_visible_passes(n_now, lookahead_orbits=3.0)
+
+    now_unix = time.time()
+
+    # ── #1: Upcoming pass warning ────────────────────────────────
+    for p in passes:
+        if p["aos_eta_sec"] <= 0:
+            continue
+        if p["aos_eta_sec"] > PASS_WARN_MINUTES * 60:
+            break
+        aos_key = round(now_unix + p["aos_eta_sec"], -1)  # round to 10s for dedup
+        if aos_key not in _alerted_pass_times:
+            _alerted_pass_times.add(aos_key)
+            aos_dt = datetime.fromtimestamp(now_unix + p["aos_eta_sec"], tz=timezone.utc)
+            cpa_dt = datetime.fromtimestamp(now_unix + p["cpa_eta_sec"], tz=timezone.utc)
+            los_dt = datetime.fromtimestamp(now_unix + p["los_eta_sec"], tz=timezone.utc)
+            duration_min = (p["los_eta_sec"] - p["aos_eta_sec"]) / 60
+            _notify_slack(
+                f"Pass in {_fmt_eta(p['aos_eta_sec'])}\n"
+                f"AOS {aos_dt.strftime('%H:%M:%S')} UTC  |  "
+                f"CPA {cpa_dt.strftime('%H:%M:%S')} UTC  |  "
+                f"LOS {los_dt.strftime('%H:%M:%S')} UTC\n"
+                f"Max El: {p['max_el_deg']:.1f}°  |  "
+                f"Min Range: {p['min_range_km']:.0f} km  |  "
+                f"Duration: {duration_min:.1f} min",
+                level="info",
+            )
+            break  # only alert on the soonest upcoming pass
+
+    # Prune stale alert keys
+    _alerted_pass_times -= {t for t in _alerted_pass_times if t < now_unix - 7200}
+
+    # ── #3: Pass summary on LOS ──────────────────────────────────
+    currently_in_pass = bool(
+        passes and passes[0]["aos_eta_sec"] <= 0 < passes[0]["los_eta_sec"]
+    )
+
+    if currently_in_pass and not _in_pass[0]:
+        _in_pass[0] = True
+        _pass_start_utc[0] = datetime.fromtimestamp(now_unix, tz=timezone.utc).isoformat()
+
+    elif not currently_in_pass and _in_pass[0]:
+        _in_pass[0] = False
+        if _pass_start_utc[0]:
+            pass_end_utc = datetime.fromtimestamp(now_unix, tz=timezone.utc).isoformat()
+            pkts = packet_store.packets_in_window(_pass_start_utc[0], pass_end_utc)
+            n_pkts = len(pkts)
+            rssi_vals = [p["rssi"] for p in pkts if p.get("rssi") is not None]
+            avg_rssi = sum(rssi_vals) / len(rssi_vals) if rssi_vals else None
+            duration_min = (
+                now_unix
+                - datetime.fromisoformat(_pass_start_utc[0]).timestamp()
+            ) / 60
+            rssi_str = f"Avg RSSI: {avg_rssi:.1f} dBm" if avg_rssi is not None else "No RSSI data"
+            _notify_slack(
+                f"Pass complete\n"
+                f"Duration: {duration_min:.1f} min  |  "
+                f"Packets received: {n_pkts}  |  {rssi_str}",
+                level="info",
+            )
+            _pass_start_utc[0] = None
+
+
+def _pass_watcher():
+    """Background task: upcoming pass alerts and pass-end summaries."""
+    while True:
+        socketio.sleep(_PASS_WATCHER_INTERVAL)
+        try:
+            _check_pass_events()
+        except Exception:
+            log.exception("Pass watcher error")
 
 
 # ──────────────────────────────────────────────
@@ -680,6 +799,8 @@ def main():
     _init_orbital()
     log.info("Orbital data ready  (period=%.1f min, alt=%.0f km)",
              _state["period"] / 60, _state["alt_km"])
+
+    socketio.start_background_task(_pass_watcher)
 
     if args.live:
         import tinygs_mqtt

@@ -45,7 +45,9 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timezone
+from urllib.request import Request, urlopen
 
 import paho.mqtt.client as mqtt
 
@@ -76,6 +78,31 @@ for _id in _raw_ids.split(","):
     _id = _id.strip()
     if _id.isdigit():
         SAT_NORAD_IDS.add(int(_id))
+
+
+# ──────────────────────────────────────────────
+# Slack notifications
+# ──────────────────────────────────────────────
+
+_last_disconnect_slack = 0.0
+_DISCONNECT_SLACK_COOLDOWN = 300  # seconds between disconnect alerts
+
+
+def _notify_slack(message: str):
+    """Post to Slack webhook. No-op when CUBESAT_SLACK_WEBHOOK is unset."""
+    webhook = os.environ.get("CUBESAT_SLACK_WEBHOOK", "")
+    if not webhook:
+        return
+    payload = json.dumps({
+        "text": f"*HUCSAT Mission Control* — {message}",
+        "username": "MissionStation",
+    })
+    try:
+        req = Request(webhook, data=payload.encode(),
+                      headers={"Content-Type": "application/json"})
+        urlopen(req, timeout=10)
+    except Exception as exc:
+        log.debug("Slack notify failed: %s", exc)
 
 
 # ──────────────────────────────────────────────
@@ -204,8 +231,15 @@ def _on_message(client, userdata, msg):
 
 
 def _on_disconnect(client, userdata, rc):
+    global _last_disconnect_slack
     if rc != 0:
         log.warning("Unexpected MQTT disconnect (rc=%d), will auto-reconnect", rc)
+        now = time.time()
+        if now - _last_disconnect_slack > _DISCONNECT_SLACK_COOLDOWN:
+            _last_disconnect_slack = now
+            _notify_slack(
+                f"TinyGS MQTT disconnected (rc={rc}) — packets may be missed. Auto-reconnecting."
+            )
 
 
 # ──────────────────────────────────────────────
