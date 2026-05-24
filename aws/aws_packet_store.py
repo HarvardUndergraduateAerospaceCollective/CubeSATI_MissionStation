@@ -1,24 +1,25 @@
 """
-Packet Store — SQLite database for long-term telemetry storage.
+AWS Packet Store — SQLite database for satellite telemetry on the ingest server.
 
-Stores raw packets received from TinyGS (or any other source) and
-parsed telemetry key-value pairs for post-mission analysis.
+Mirrors the schema from the Pi-side ``packet_store.py`` so that data can be
+synced bi-directionally without schema translation.  The database path is
+configurable via the ``CUBESAT_DB_PATH`` environment variable (defaults to
+``./aws_mission_data.db``).
 
-Database file lives next to this script as ``mission_data.db``.
 All timestamps are stored as ISO-8601 UTC strings.
 """
 
 import base64
 import hashlib
 import json
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-_DB_PATH = Path(__file__).parent / "mission_data.db"
+_DB_PATH = os.environ.get("CUBESAT_DB_PATH", "./aws_mission_data.db")
 _local = threading.local()
 
 # ──────────────────────────────────────────────
@@ -29,7 +30,7 @@ def _get_conn() -> sqlite3.Connection:
     """Return a thread-local SQLite connection (creates DB/tables on first call)."""
     conn = getattr(_local, "conn", None)
     if conn is None:
-        conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+        conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")   # safe for concurrent readers
         conn.execute("PRAGMA foreign_keys=ON")
@@ -186,19 +187,6 @@ def store_packet_if_new(
     return (packet_id, True)
 
 
-def store_telemetry(packet_id: int, key: str, value: float,
-                    unit: str = "", timestamp: Optional[str] = None):
-    """Insert a single parsed telemetry reading linked to a packet."""
-    if timestamp is None:
-        timestamp = datetime.now(timezone.utc).isoformat()
-    with _cursor() as cur:
-        cur.execute(
-            "INSERT INTO telemetry (packet_id, timestamp, key, value, unit) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (packet_id, timestamp, key, value, unit),
-        )
-
-
 def store_telemetry_batch(packet_id: int,
                           readings: list[tuple[str, float, str]],
                           timestamp: Optional[str] = None):
@@ -228,19 +216,8 @@ def packet_count(satellite: Optional[str] = None) -> int:
         return cur.fetchone()[0]
 
 
-def packets_in_window(since_utc: str, until_utc: str) -> list[dict]:
-    """Return packets received between two ISO-8601 UTC timestamps."""
-    with _cursor() as cur:
-        cur.execute(
-            "SELECT * FROM packets WHERE received_at >= ? AND received_at <= ? "
-            "ORDER BY received_at",
-            (since_utc, until_utc),
-        )
-        return [dict(row) for row in cur.fetchall()]
-
-
-def packets_since(since_iso: str) -> list[dict]:
-    """Return all packets with ``received_at >= since_iso``, oldest first.
+def packets_since(since_iso: str, limit: int = 1000) -> list[dict]:
+    """Return packets with ``received_at >= since_iso``, oldest first.
 
     The *raw_frame* bytes column is base64-encoded as a string so that
     the returned dicts are directly JSON-serializable.
@@ -248,8 +225,8 @@ def packets_since(since_iso: str) -> list[dict]:
     with _cursor() as cur:
         cur.execute(
             "SELECT * FROM packets WHERE received_at >= ? "
-            "ORDER BY received_at",
-            (since_iso,),
+            "ORDER BY received_at LIMIT ?",
+            (since_iso, limit),
         )
         rows = []
         for row in cur.fetchall():
@@ -270,157 +247,10 @@ def recent_packets(n: int = 20, satellite: Optional[str] = None) -> list[dict]:
         else:
             cur.execute(
                 "SELECT * FROM packets ORDER BY received_at DESC LIMIT ?", (n,))
-        return [dict(row) for row in cur.fetchall()]
-
-
-def telemetry_series(key: str, since: Optional[str] = None,
-                     satellite: Optional[str] = None) -> list[dict]:
-    """Return time-series for a telemetry key as [{timestamp, value, unit}, ...]."""
-    clauses = ["t.key = ?"]
-    params: list = [key]
-
-    if since:
-        clauses.append("t.timestamp >= ?")
-        params.append(since)
-    if satellite:
-        clauses.append("p.satellite = ?")
-        params.append(satellite)
-
-    where = " AND ".join(clauses)
-    with _cursor() as cur:
-        cur.execute(
-            f"SELECT t.timestamp, t.value, t.unit "
-            f"FROM telemetry t JOIN packets p ON t.packet_id = p.id "
-            f"WHERE {where} ORDER BY t.timestamp",
-            params,
-        )
-        return [dict(row) for row in cur.fetchall()]
-
-
-def fsm_state_history(n: int = 500) -> list[dict]:
-    """Return FSM state timeline from decoded packet JSON.
-
-    Returns a list of dicts with keys: received_at, fsm_state, fsm_depl,
-    uptime.  Only packets with a valid decoded_json containing FSM_state
-    are included.
-    """
-    with _cursor() as cur:
-        cur.execute(
-            "SELECT received_at, decoded_json FROM packets "
-            "WHERE decoded_json IS NOT NULL "
-            "ORDER BY received_at DESC LIMIT ?",
-            (n,),
-        )
-        rows = cur.fetchall()
-
-    results = []
-    for row in reversed(rows):  # oldest first
-        try:
-            decoded = json.loads(row["decoded_json"])
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if "FSM_state" not in decoded:
-            continue
-        results.append({
-            "received_at": row["received_at"],
-            "fsm_state": decoded.get("FSM_state", ""),
-            "fsm_depl": decoded.get("FSM_depl", ""),
-            "fsm_pay_set": decoded.get("FSM_pay_set", ""),
-            "uptime": decoded.get("uptime", ""),
-        })
-    return results
-
-
-def latest_fsm_state() -> Optional[dict]:
-    """Return the most recent FSM state info, or None if no data."""
-    with _cursor() as cur:
-        cur.execute(
-            "SELECT decoded_json FROM packets "
-            "WHERE decoded_json IS NOT NULL "
-            "ORDER BY received_at DESC LIMIT 20"
-        )
+        rows = []
         for row in cur.fetchall():
-            try:
-                decoded = json.loads(row["decoded_json"])
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if "FSM_state" in decoded:
-                return {
-                    "fsm_state": decoded.get("FSM_state", ""),
-                    "fsm_depl": decoded.get("FSM_depl", ""),
-                    "fsm_pay_set": decoded.get("FSM_pay_set", ""),
-                    "fsm_pan_light": decoded.get("FSM_pan_light", ""),
-                    "fsm_payl_light": decoded.get("FSM_payl_light", ""),
-                    "fsm_best_dir": decoded.get("FSM_best_dir", ""),
-                    "uptime": decoded.get("uptime", ""),
-                }
-    return None
-
-
-def all_telemetry_keys() -> list[str]:
-    """List distinct telemetry keys stored in the database."""
-    with _cursor() as cur:
-        cur.execute("SELECT DISTINCT key FROM telemetry ORDER BY key")
-        return [row[0] for row in cur.fetchall()]
-
-
-# ──────────────────────────────────────────────
-# Export helpers (post-mission analysis)
-# ──────────────────────────────────────────────
-
-def export_packets_csv(path: str, satellite: Optional[str] = None):
-    """Export all packets to a CSV file."""
-    import csv
-    rows = recent_packets(n=10_000_000, satellite=satellite)
-    if not rows:
-        return
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def export_telemetry_csv(path: str, key: Optional[str] = None,
-                         satellite: Optional[str] = None):
-    """Export telemetry time-series to a CSV file."""
-    import csv
-    with _cursor() as cur:
-        clauses, params = [], []
-        if key:
-            clauses.append("t.key = ?")
-            params.append(key)
-        if satellite:
-            clauses.append("p.satellite = ?")
-            params.append(satellite)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        cur.execute(
-            f"SELECT p.satellite, p.station, t.key, t.timestamp, t.value, t.unit "
-            f"FROM telemetry t JOIN packets p ON t.packet_id = p.id "
-            f"{where} ORDER BY t.timestamp",
-            params,
-        )
-        rows = cur.fetchall()
-    if not rows:
-        return
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["satellite", "station", "key", "timestamp", "value", "unit"])
-        writer.writerows(rows)
-
-
-def summary() -> dict:
-    """Quick overview of what's in the database."""
-    with _cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM packets")
-        pkt_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM telemetry")
-        telem_count = cur.fetchone()[0]
-        cur.execute("SELECT MIN(received_at), MAX(received_at) FROM packets")
-        row = cur.fetchone()
-        return {
-            "total_packets": pkt_count,
-            "total_telemetry_rows": telem_count,
-            "earliest_packet": row[0],
-            "latest_packet": row[1],
-            "telemetry_keys": all_telemetry_keys(),
-        }
+            d = dict(row)
+            if d.get("raw_frame") is not None:
+                d["raw_frame"] = base64.b64encode(d["raw_frame"]).decode("ascii")
+            rows.append(d)
+        return rows

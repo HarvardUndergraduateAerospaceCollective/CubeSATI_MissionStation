@@ -342,7 +342,8 @@ def check_status():
 
 # ── Main ───────────────────────────────────────
 
-def run_backup(*, do_local: bool = True, do_cloud: bool = True, dry_run: bool = False):
+def run_backup(*, do_local: bool = True, do_cloud: bool = True,
+               dry_run: bool = False, do_sync: bool = True):
     log = setup_logging()
     log.info("=" * 50)
     log.info("Backup run started")
@@ -352,6 +353,17 @@ def run_backup(*, do_local: bool = True, do_cloud: bool = True, dry_run: bool = 
         log.error(msg)
         notify_slack(msg, "error")
         return
+
+    # Pre-backup AWS sync: pull any packets the Pi missed
+    if do_sync and os.environ.get("CUBESAT_AWS_URL"):
+        log.info("Running AWS sync before backup ...")
+        try:
+            from compare import sync_once
+            stats = sync_once()
+            log.info(f"Sync result: {stats['new']} new, "
+                     f"{stats['skipped']} skipped, {stats['errors']} errors")
+        except Exception as exc:
+            log.warning(f"Pre-backup sync failed (continuing with backup): {exc}")
 
     log.info(f"Source DB: {DB_PATH.stat().st_size / 1024:.1f} KB")
 
@@ -412,6 +424,8 @@ def main():
     parser.add_argument("--local", action="store_true", help="SD card backup only")
     parser.add_argument("--cloud", action="store_true", help="Cloud backup only")
     parser.add_argument("--dry-run", action="store_true", help="Log without executing")
+    parser.add_argument("--no-sync", action="store_true",
+                        help="Skip AWS sync before backup")
     parser.add_argument("--status", action="store_true", help="Check backup infrastructure")
     parser.add_argument("--test-slack", metavar="MESSAGE", help="Send a test Slack message")
     args = parser.parse_args()
@@ -436,7 +450,8 @@ def main():
         do_local = args.local
         do_cloud = args.cloud
 
-    run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=args.dry_run)
+    run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=args.dry_run,
+               do_sync=not args.no_sync)
 
 
 if __name__ == "__main__":
