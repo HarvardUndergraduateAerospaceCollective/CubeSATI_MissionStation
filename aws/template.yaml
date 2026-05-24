@@ -1,0 +1,188 @@
+# =============================================================================
+# CubeSAT Telemetry Ingestion API — AWS SAM Template
+# =============================================================================
+#
+# WHAT THIS DOES
+# --------------
+# Deploys a serverless telemetry pipeline for receiving and retrieving CubeSAT
+# packets forwarded by TinyGS ground station nodes.
+#
+# ARCHITECTURE
+# ------------
+#   TinyGS ground station
+#       │
+#       │  POST /ingest/{token}  (webhook, token in URL path)
+#       ▼
+#   API Gateway (HTTP API)
+#       │                         │
+#       ▼                         ▼
+#   IngestFunction           SyncFunction
+#   (ingest/app.py)          (sync/app.py)
+#       │                         ▲
+#       │  PutItem                │  Query
+#       ▼                         │
+#   DynamoDB: cubesat_packets  ◄──┘
+#                                 ▲
+#                                 │  GET /packets?since=<iso>&until=<iso>
+#                               Raspberry Pi (x-api-key required)
+#
+#   - IngestFunction validates the secret token, parses the TinyGS payload,
+#     and writes each packet as a DynamoDB item.
+#   - SyncFunction accepts a time-range query from the Pi, reads matching
+#     items from DynamoDB, and returns them as a JSON batch.
+#   - Items auto-expire after 90 days via DynamoDB TTL on the "ttl" attribute.
+#
+# DEPLOY
+# ------
+#   Prerequisites:
+#     - AWS CLI configured (aws configure)
+#     - AWS SAM CLI installed (https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
+#
+#   First deploy (interactive, creates samconfig.toml):
+#     cd aws/
+#     sam build
+#     sam deploy --guided
+#       → enter a stack name, region, IngestSecret (the token TinyGS will POST to)
+#
+#   Subsequent deploys:
+#     sam build && sam deploy
+#
+# AFTER DEPLOY
+# ------------
+#   1. Copy ApiEndpoint from the CloudFormation Outputs.
+#   2. Set the TinyGS webhook URL to:
+#        <ApiEndpoint>/ingest/<IngestSecret>
+#   3. Create an API Gateway API key in the AWS Console (or via CLI) and
+#      associate it with the "prod" stage for the Pi's GET /packets calls.
+#   4. On the Pi, set the x-api-key header when polling:
+#        GET <ApiEndpoint>/packets?since=<iso>&until=<iso>
+#        Header: x-api-key: <your-api-key>
+#
+# COST
+# ----
+#   At expected CubeSAT telemetry volume (low packet rate, infrequent Pi polls):
+#   - Lambda:      ~$0/month  (1M free invocations/month, forever)
+#   - DynamoDB:    ~$0/month  (25 GB + 200M requests free/month, forever)
+#   - API Gateway: ~$0/month  (1M HTTP API calls free for 12 months)
+#   Expected total: $0/month within AWS permanent free tier.
+#
+# LAMBDA SOURCE
+# -------------
+#   IngestFunction → ingest/app.py   (handler: app.lambda_handler)
+#   SyncFunction   → sync/app.py     (handler: app.lambda_handler)
+#
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CubeSAT telemetry ingestion API — TinyGS webhook receiver and Pi sync endpoint
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  SatelliteId:
+    Type: String
+    Default: "CUBESAT-1"
+    Description: Satellite identifier stored with every packet
+
+  IngestSecret:
+    Type: String
+    NoEcho: true
+    Description: >
+      Secret token embedded in the ingest URL path (/ingest/{token}).
+      TinyGS POSTs to this path; requests with any other token are rejected
+      by the Lambda before touching DynamoDB.
+
+# ---------------------------------------------------------------------------
+# Globals — applied to all Lambda functions
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref PacketsTable
+        SATELLITE_ID: !Ref SatelliteId
+        INGEST_SECRET: !Ref IngestSecret
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # ── DynamoDB table ────────────────────────────────────────────────────────
+  PacketsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: cubesat_packets
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: satellite_id
+          AttributeType: S
+        - AttributeName: received_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: satellite_id
+          KeyType: HASH
+        - AttributeName: received_at
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── HTTP API (API Gateway v2) ─────────────────────────────────────────────
+  TelemetryApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+
+  # ── Ingest Lambda ─────────────────────────────────────────────────────────
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ingest/
+      Handler: app.handler
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref PacketsTable
+      Events:
+        IngestRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TelemetryApi
+            Method: POST
+            Path: /ingest/{token}
+
+  # ── Sync Lambda ───────────────────────────────────────────────────────────
+  SyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: sync/
+      Handler: app.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PacketsTable
+      Events:
+        SyncRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TelemetryApi
+            Method: GET
+            Path: /packets
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+  ApiEndpoint:
+    Description: Base URL for the telemetry API (prod stage)
+    Value: !Sub "https://${TelemetryApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+
+  IngestUrl:
+    Description: >
+      Full TinyGS webhook URL. Treat this as a secret — it contains the
+      ingest token. Run: aws cloudformation describe-stacks --stack-name
+      <stack> --query "Stacks[0].Outputs" to retrieve it after deploy.
+    Value: !Sub "https://${TelemetryApi}.execute-api.${AWS::Region}.amazonaws.com/prod/ingest/${IngestSecret}"

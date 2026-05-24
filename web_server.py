@@ -133,7 +133,12 @@ def _current_n_orbits():
 
 
 def _current_phase_orbit():
-    """Return absolute orbit phase anchored to TLE epoch + mean anomaly."""
+    """Return absolute orbit phase anchored to TLE epoch.
+
+    With SGP4 active the mean anomaly offset is omitted — SGP4 handles
+    M0 internally, so start_orbit = elapsed_time / period maps directly
+    to the correct absolute UTC time in the propagator.
+    """
     with _state_lock:
         period = _state["period"]
         tle_epoch_unix = _state["tle_epoch_unix"]
@@ -142,7 +147,9 @@ def _current_phase_orbit():
     if period <= 0:
         return 0.0
 
-    phase_orbits = ((time.time() - tle_epoch_unix) / period) + (mean_anomaly_deg / 360.0)
+    phase_orbits = (time.time() - tle_epoch_unix) / period
+    if not visualizer.has_sgp4():
+        phase_orbits += mean_anomaly_deg / 360.0
     return max(float(phase_orbits), 0.0)
 
 

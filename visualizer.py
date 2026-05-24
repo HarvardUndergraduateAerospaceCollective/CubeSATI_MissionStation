@@ -11,6 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
+try:
+    from sgp4.api import Satrec as _Satrec
+    _SGP4_AVAILABLE = True
+except ImportError:
+    _SGP4_AVAILABLE = False
+
 # ──────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────
@@ -23,6 +29,86 @@ R_EARTH = 6_371_000                # m
 EARTH_ROT_RATE = 7.2921159e-5      # rad/s
 DEG = np.degrees
 RAD = np.radians
+
+# ──────────────────────────────────────────────
+# SGP4 state (set once TLE lines are loaded)
+# ──────────────────────────────────────────────
+
+_sgp4_sat = None          # Satrec object; None until TLE lines are available
+_sgp4_epoch_unix = 0.0    # TLE epoch as Unix timestamp
+_sgp4_period = 0.0        # Orbital period in seconds
+
+
+def has_sgp4() -> bool:
+    """True when an SGP4 model is loaded and ready."""
+    return _sgp4_sat is not None
+
+
+def _init_sgp4(line1: str, line2: str, epoch_unix: float, sma: float):
+    """Build the module-level SGP4 satellite model from raw TLE lines."""
+    global _sgp4_sat, _sgp4_epoch_unix, _sgp4_period
+    if not _SGP4_AVAILABLE:
+        return
+    try:
+        _sgp4_sat = _Satrec.twoline2rv(line1, line2)
+        _sgp4_epoch_unix = epoch_unix
+        _sgp4_period = orbital_period(sma)
+    except Exception:
+        _sgp4_sat = None
+
+
+def _gmst_rad(jd: np.ndarray) -> np.ndarray:
+    """Greenwich Mean Sidereal Time in radians for the given Julian date(s). IAU 1982."""
+    T = (jd - 2451545.0) / 36525.0
+    gmst_sec = (67310.54841
+                + (876600.0 * 3600.0 + 8640184.812866) * T
+                + 0.093104 * T ** 2
+                - 6.2e-6 * T ** 3)
+    return (gmst_sec % 86400.0) * (2.0 * np.pi / 86400.0)
+
+
+def _sgp4_propagate(n_orbits: float, n_points: int, start_orbit: float):
+    """
+    Propagate from (TLE epoch + start_orbit × period) for n_orbits.
+    Returns (lon_deg, lat_deg, alt_km, t_sec) — same contract as the
+    Keplerian functions.  t_sec is seconds since the start of the window.
+    """
+    _JD_UNIX = 2440587.5          # Julian date of Unix epoch (1970-01-01)
+    _R_EARTH_KM = R_EARTH / 1000.0
+
+    t_start = _sgp4_epoch_unix + start_orbit * _sgp4_period
+    t_unix = np.linspace(t_start, t_start + n_orbits * _sgp4_period, n_points)
+
+    jd = t_unix / 86400.0 + _JD_UNIX
+    jd_whole = np.floor(jd)
+    jd_frac = jd - jd_whole
+
+    # Vectorised propagation (sgp4 ≥ 2.21); loop fallback for older installs
+    try:
+        e_arr, r_arr, _ = _sgp4_sat.sgp4_array(jd_whole, jd_frac)
+        bad = e_arr != 0
+        if bad.any():
+            for i in np.where(bad)[0]:
+                r_arr[i] = r_arr[i - 1] if i > 0 else r_arr[min(i + 1, n_points - 1)]
+    except AttributeError:
+        r_arr = np.zeros((n_points, 3))
+        for i in range(n_points):
+            e, pos, _ = _sgp4_sat.sgp4(float(jd_whole[i]), float(jd_frac[i]))
+            r_arr[i] = pos if e == 0 else (r_arr[i - 1] if i > 0 else [0.0, 0.0, 0.0])
+
+    # TEME → ECEF: rotate around z-axis by GMST
+    gmst = _gmst_rad(jd)
+    cos_g, sin_g = np.cos(gmst), np.sin(gmst)
+    x = r_arr[:, 0] * cos_g + r_arr[:, 1] * sin_g
+    y = -r_arr[:, 0] * sin_g + r_arr[:, 1] * cos_g
+    z = r_arr[:, 2]
+
+    # ECEF → geodetic (spherical, consistent with R_EARTH used throughout)
+    lon = (np.degrees(np.arctan2(y, x)) + 180.0) % 360.0 - 180.0
+    lat = np.degrees(np.arctan2(z, np.hypot(x, y)))   # geocentric latitude
+    alt_km = np.sqrt(x ** 2 + y ** 2 + z ** 2) - _R_EARTH_KM
+
+    return lon, lat, alt_km, t_unix - t_unix[0]
 
 
 def _parse_tle_epoch(epoch_token: str) -> float:
@@ -113,6 +199,10 @@ def ground_track(
     Compute sub-satellite ground track.
     Returns (longitude, latitude, time_seconds) arrays.
     """
+    if _sgp4_sat is not None:
+        lon, lat, _alt, t = _sgp4_propagate(n_orbits, n_points, start_orbit)
+        return lon, lat, t
+
     inc = RAD(inclination)
     Omega = RAD(raan)
     omega = RAD(arg_periapsis)
@@ -154,6 +244,9 @@ def ground_track_with_alt(
     Compute sub-satellite ground track with altitude.
     Returns (longitude, latitude, altitude_km, time_seconds) arrays.
     """
+    if _sgp4_sat is not None:
+        return _sgp4_propagate(n_orbits, n_points, start_orbit)
+
     inc = RAD(inclination)
     Omega = RAD(raan)
     omega = RAD(arg_periapsis)
@@ -191,6 +284,10 @@ def orbital_altitude(
     Compute altitude above Earth's surface over time.
     Returns (time_seconds, altitude_km) arrays.
     """
+    if _sgp4_sat is not None:
+        _, _, alt_km, t_sec = _sgp4_propagate(n_orbits, n_points, start_orbit=0.0)
+        return t_sec, alt_km
+
     period = orbital_period(semi_major_axis)
     t = np.linspace(0, n_orbits * period, n_points)
     M = 2 * np.pi / period * t
@@ -255,7 +352,7 @@ def get_orbital_state(cat_nr: int = 25544):
             and "mean_anomaly_deg" in cached_payload
             and "epoch_unix" in cached_payload
         ):
-            return {
+            state = {
                 "inclination": float(cached_elements[0]),
                 "raan": float(cached_elements[1]),
                 "eccentricity": float(cached_elements[2]),
@@ -264,6 +361,12 @@ def get_orbital_state(cat_nr: int = 25544):
                 "mean_anomaly_deg": float(cached_payload["mean_anomaly_deg"]),
                 "epoch_unix": float(cached_payload["epoch_unix"]),
             }
+            if _sgp4_sat is None:
+                l1 = cached_payload.get("tle_line1")
+                l2 = cached_payload.get("tle_line2")
+                if l1 and l2:
+                    _init_sgp4(l1, l2, state["epoch_unix"], state["semi_major_axis"])
+            return state
 
     try:
         line1, line2 = _fetch_tle_lines(cat_nr)
@@ -301,6 +404,7 @@ def get_orbital_state(cat_nr: int = 25544):
             "tle_line2": line2,
         },
     )
+    _init_sgp4(line1, line2, state["epoch_unix"], state["semi_major_axis"])
     return state
 
 

@@ -6,7 +6,21 @@ BIG CHANGES:
 
 web server for visualization, pi3b+, or pi zero (even better!!??, look into this) for calculations and mqtt listener, orbit math, etc....
 
+
+
+when sshing first run 
+
+export DISPLAY=:0
+
+then
+
 chromium-browser --kiosk --disable-gpu-compositing --disable-software-rasterizer \
+  --disable-extensions --disable-sync --noerrdialogs \
+  --memory-pressure-thresholds=conservative \
+  http://localhost:5000
+  
+  or
+chromium --kiosk --disable-gpu-compositing --disable-software-rasterizer \
   --disable-extensions --disable-sync --noerrdialogs \
   --memory-pressure-thresholds=conservative \
   http://localhost:5000
