@@ -72,8 +72,6 @@ def _init_tables(conn: sqlite3.Connection):
             ON packets(satellite);
         CREATE INDEX IF NOT EXISTS idx_packets_time
             ON packets(received_at);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_packets_frame_hash
-            ON packets(frame_hash) WHERE frame_hash IS NOT NULL;
 
         CREATE TABLE IF NOT EXISTS telemetry (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,13 +89,15 @@ def _init_tables(conn: sqlite3.Connection):
     # Migration: add frame_hash column to existing databases that lack it.
     try:
         conn.execute("ALTER TABLE packets ADD COLUMN frame_hash TEXT")
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_packets_frame_hash "
-            "ON packets(frame_hash) WHERE frame_hash IS NOT NULL"
-        )
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_packets_frame_hash "
+        "ON packets(frame_hash) WHERE frame_hash IS NOT NULL"
+    )
+    conn.commit()
 
 
 # ──────────────────────────────────────────────

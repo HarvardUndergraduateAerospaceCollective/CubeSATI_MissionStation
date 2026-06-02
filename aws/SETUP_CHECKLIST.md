@@ -60,9 +60,26 @@ curl "<ApiEndpoint>/packets?since=2020-01-01T00:00:00Z"
 - Verify packets flow from DynamoDB → local SQLite intact
 - Run additional integration tests on Pi hardware
 
+### 8. Packet simulator — DONE (2026-06-02)
+- `simulate_packets.py` generates realistic beacon packets with time-varying telemetry
+- Modes: `--mqtt` (local pipeline injection) and `--aws` (POST to Lambda)
+- Covers all dashboard-required fields: FSM_batt_v, FSM_magn_v_0, FSM_best_dir, rssi, FSM_state, etc.
+- **Bug found & fixed:** `packet_store._init_tables` migration was broken on existing DBs — the `frame_hash` index was created inside `executescript` before the migration could add the column. Moved index creation to after the migration.
+
 ## Known Issues
 - ~~`packet_store.upsert_packet()` needs implementation~~ — resolved: aws_sync.py now uses `store_packet_if_new()`
 - NORAD ID is still the ISS placeholder (`25544`) — swap to actual satellite ID
 
 ## To Investigate
 - **DynamoDB 90-day TTL** — packets auto-expire after 90 days. Need to investigate a long-term storage solution (S3 archival, DynamoDB backup, etc.) so mission-critical data is never lost
+
+## Test Files (remove before production)
+- `aws/test_e2e_pipeline.py` — pytest E2E tests for FastAPI ingest server
+- `test_pi_local.py` — standalone Pi-local tests (beacon decoder, packet_store, dedup)
+- `test_pi_aws.py` — Pi + AWS integration tests (live sync path)
+- `simulate_packets.py` — packet simulator for dashboard testing
+
+## Production Code Changes (this session)
+- `aws_sync.py` — switched from `upsert_packet()` to `store_packet_if_new()`; fixed `raw_data`/`data` field name; removed `gs_time` cursor fallback
+- `tinygs_mqtt.py` — switched from `store_packet()` to `store_packet_if_new()` with dedup
+- `packet_store.py` — fixed `_init_tables` migration ordering for `frame_hash` column/index
