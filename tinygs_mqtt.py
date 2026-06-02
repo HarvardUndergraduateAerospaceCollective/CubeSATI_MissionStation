@@ -168,7 +168,7 @@ def _parse_and_store(payload: bytes, topic: str):
         decoded_combined["_beacon"] = beacon_telemetry
 
     # ── Persist packet ─────────────────────────────────────────
-    pkt_id = packet_store.store_packet(
+    pkt_id, was_new = packet_store.store_packet_if_new(
         satellite=str(satellite),
         norad_id=int(norad_id) if norad_id is not None else None,
         station=str(station),
@@ -180,6 +180,10 @@ def _parse_and_store(payload: bytes, topic: str):
         decoded=decoded_combined,
         source="tinygs_mqtt",
     )
+
+    if not was_new:
+        log.debug("tinygs_mqtt: duplicate packet skipped (station=%s)", station)
+        return
 
     # ── Store telemetry time-series rows ───────────────────────
     readings: list[tuple[str, float, str]] = []

@@ -13,9 +13,9 @@ each packet into the local DB to fill any gaps.
 
 Dedup
 -----
-packet_store.upsert_packet() uses INSERT OR IGNORE on a (station, gs_time)
-unique index.  Packets already in the DB — whether from MQTT or a prior sync
-— are silently skipped.  ``was_inserted=False`` means it was a duplicate.
+packet_store.store_packet_if_new() deduplicates by frame_hash (SHA-256 of
+raw bytes).  Packets already in the DB — whether from MQTT or a prior sync
+— are silently skipped.  ``was_new=False`` means it was a duplicate.
 
 Configuration (environment variables)
 --------------------------------------
@@ -40,11 +40,8 @@ State
 Last-synced cursor is stored in .aws_sync_state.json (next to this script).
 The file survives reboots so the sync never re-fetches the full history.
 
-NOTE: packet_store.upsert_packet() and a gs_time column migration in
-packet_store.py must be implemented before this module is fully functional.
-This file is currently scaffolded — the function signatures are defined here
-but the underlying DB support is not yet in place.  See the project plan for
-packet_store.py changes.
+NOTE: gs_time is preserved in decoded_json (the full TinyGS payload) but
+is not stored as a separate column.
 """
 
 import base64
@@ -143,7 +140,7 @@ def _process_and_upsert(pkt: dict) -> bool:
     received_at = pkt.get("received_at") or datetime.now(timezone.utc).isoformat()
 
     # ── Decode raw satellite bytes ───────────────────────────────
-    raw_b64 = pkt.get("data", "")
+    raw_b64 = pkt.get("raw_data", "") or pkt.get("data", "")
     try:
         raw_bytes = base64.b64decode(raw_b64) if raw_b64 else None
     except Exception:
@@ -164,11 +161,8 @@ def _process_and_upsert(pkt: dict) -> bool:
     if beacon_telemetry:
         decoded_combined["_beacon"] = beacon_telemetry
 
-    # ── Upsert into local DB ─────────────────────────────────────
-    # NOTE: upsert_packet() does not yet exist in packet_store.py.
-    # It must be implemented with INSERT OR IGNORE on (station, gs_time)
-    # and return (packet_id: int, was_inserted: bool).
-    pkt_id, was_inserted = packet_store.upsert_packet(
+    # ── Insert into local DB (dedup by frame_hash) ────────────────
+    pkt_id, was_new = packet_store.store_packet_if_new(
         satellite=str(satellite),
         norad_id=int(norad_id) if norad_id is not None else None,
         station=str(station),
@@ -180,10 +174,9 @@ def _process_and_upsert(pkt: dict) -> bool:
         decoded=decoded_combined,
         source="aws_sync",
         received_at=received_at,
-        gs_time=gs_time,
     )
 
-    if not was_inserted:
+    if not was_new:
         log.debug("aws_sync: duplicate skipped  station=%s  gs_time=%s", station, gs_time)
         return False
 
@@ -238,7 +231,7 @@ def _sync_once() -> int:
 
         # Advance cursor to the latest timestamp seen, regardless of insert result.
         # This prevents re-fetching duplicates on every poll.
-        pkt_ts = pkt.get("received_at") or pkt.get("gs_time") or ""
+        pkt_ts = pkt.get("received_at") or ""
         if pkt_ts and pkt_ts > latest_ts:
             latest_ts = pkt_ts
 
