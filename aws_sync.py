@@ -295,7 +295,7 @@ if __name__ == "__main__":
         )
         raise SystemExit(1)
 
-    print(f"Starting AWS sync (interval={AWS_SYNC_INTERVAL}s, url={AWS_SYNC_URL}) — Ctrl+C to stop")
+    print(f"Starting AWS sync (interval={AWS_SYNC_INTERVAL}s, url={AWS_SYNC_URL}) - Ctrl+C to stop")
     try:
         _sync_loop()
     except KeyboardInterrupt:
