@@ -158,32 +158,39 @@ def store_packet_if_new(
     existing row id is returned and *was_new* is ``False``.
     Packets without a *raw_frame* (hash is NULL) are always inserted.
     """
+    if received_at is None:
+        received_at = datetime.now(timezone.utc).isoformat()
+    decoded_json = json.dumps(decoded) if decoded else None
     frame_hash = hashlib.sha256(raw_frame).hexdigest() if raw_frame is not None else None
 
-    if frame_hash is not None:
-        with _cursor() as cur:
-            cur.execute(
-                "SELECT id FROM packets WHERE frame_hash = ?",
-                (frame_hash,),
-            )
-            row = cur.fetchone()
-            if row is not None:
-                return (row[0], False)
+    if frame_hash is None:
+        # No raw frame — can't dedup, always insert
+        packet_id = store_packet(
+            satellite=satellite, norad_id=norad_id, station=station,
+            frequency_mhz=frequency_mhz, rssi=rssi, snr=snr,
+            crc_error=crc_error, raw_frame=raw_frame, decoded=decoded,
+            source=source, received_at=received_at,
+        )
+        return (packet_id, True)
 
-    packet_id = store_packet(
-        satellite=satellite,
-        norad_id=norad_id,
-        station=station,
-        frequency_mhz=frequency_mhz,
-        rssi=rssi,
-        snr=snr,
-        crc_error=crc_error,
-        raw_frame=raw_frame,
-        decoded=decoded,
-        source=source,
-        received_at=received_at,
-    )
-    return (packet_id, True)
+    # Single transaction: check + insert atomically
+    with _cursor() as cur:
+        cur.execute("SELECT id FROM packets WHERE frame_hash = ?", (frame_hash,))
+        row = cur.fetchone()
+        if row is not None:
+            return (row[0], False)
+
+        cur.execute(
+            """INSERT INTO packets
+               (received_at, satellite, norad_id, station,
+                frequency_mhz, rssi, snr, crc_error,
+                raw_frame, decoded_json, source, frame_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (received_at, satellite, norad_id, station,
+             frequency_mhz, rssi, snr, int(crc_error),
+             raw_frame, decoded_json, source, frame_hash),
+        )
+        return (cur.lastrowid, True)
 
 
 def store_telemetry(packet_id: int, key: str, value: float,

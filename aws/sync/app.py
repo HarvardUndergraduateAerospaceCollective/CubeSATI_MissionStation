@@ -8,7 +8,7 @@
 # poll — this is simply the received_at of the last returned packet, so the
 # caller never re-requests the same rows.
 #
-# Deduplication is done Pi-side using (station, gs_time) as a unique key.
+# Deduplication is done Pi-side using frame_hash (SHA-256 of raw bytes).
 # This Lambda returns raw DynamoDB rows; it does not decode beacon payloads.
 
 import json

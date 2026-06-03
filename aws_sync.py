@@ -1,5 +1,5 @@
 """
-AWS Sync — Polls an AWS REST endpoint for satellite packets and upserts them
+AWS Sync — Polls an AWS REST endpoint for satellite packets and stores them
 into the local SQLite database.
 
 Architecture
@@ -8,7 +8,7 @@ TinyGS ground stations POST received packets to an AWS API Gateway endpoint
 (primary collection path).  The Pi also runs a local TinyGS MQTT listener
 (tinygs_mqtt.py) as a backup.  This module handles the third case: after an
 MQTT disconnect, the Pi may have missed packets that AWS already collected.
-It periodically polls AWS, pulling everything since the last sync, and upserts
+It periodically polls AWS, pulling everything since the last sync, and stores
 each packet into the local DB to fill any gaps.
 
 Dedup
@@ -123,8 +123,8 @@ def _fetch_packets(since: str) -> dict:
 # Packet processing
 # ──────────────────────────────────────────────
 
-def _process_and_upsert(pkt: dict) -> bool:
-    """Decode one AWS packet dict, upsert into local DB.
+def _process_and_store(pkt: dict) -> bool:
+    """Decode one AWS packet dict, store in local DB.
 
     Returns True if the packet was newly inserted, False if it was a duplicate.
     """
@@ -157,9 +157,12 @@ def _process_and_upsert(pkt: dict) -> bool:
         except Exception:
             log.debug("aws_sync: beacon decode failed", exc_info=True)
 
+    # Beacon fields merged at top level so FSM/light consumers can find them
+    # directly (e.g. FSM_state), and also preserved under _beacon.
     decoded_combined = {**pkt}
     if beacon_telemetry:
-        decoded_combined["_beacon"] = beacon_telemetry
+        decoded_combined.update(beacon_telemetry)   # top-level for consumers
+        decoded_combined["_beacon"] = beacon_telemetry  # preserved copy
 
     # ── Insert into local DB (dedup by frame_hash) ────────────────
     pkt_id, was_new = packet_store.store_packet_if_new(
@@ -204,7 +207,7 @@ def _process_and_upsert(pkt: dict) -> bool:
 # ──────────────────────────────────────────────
 
 def _sync_once() -> int:
-    """Fetch one batch from AWS, upsert all packets, advance cursor.
+    """Fetch one batch from AWS, store all packets, advance cursor.
 
     Returns the number of newly inserted packets.
     """
@@ -223,7 +226,7 @@ def _sync_once() -> int:
 
     for pkt in packets:
         try:
-            was_new = _process_and_upsert(pkt)
+            was_new = _process_and_store(pkt)
             if was_new:
                 inserted += 1
         except Exception:

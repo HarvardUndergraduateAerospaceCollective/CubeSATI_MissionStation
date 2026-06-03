@@ -128,8 +128,8 @@ def _parse_and_store(payload: bytes, topic: str):
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
-        packet_store.store_packet(raw_frame=payload, source="tinygs_mqtt")
-        log.warning("Received non-JSON packet (%d bytes), stored raw", len(payload))
+        log.warning("tinygs_mqtt: non-JSON payload (%d bytes), storing raw", len(payload))
+        packet_store.store_packet_if_new(raw_frame=payload, source="tinygs_mqtt")
         return
 
     # ── Extract TinyGS envelope fields ──────────────────────────
@@ -162,10 +162,13 @@ def _parse_and_store(payload: bytes, topic: str):
         except Exception:
             log.debug("Beacon decode failed (may not be our satellite)", exc_info=True)
 
-    # Merge TinyGS envelope + decoded beacon for the decoded_json column
+    # Merge TinyGS envelope + decoded beacon for the decoded_json column.
+    # Beacon fields are merged at the top level so FSM/light consumers can find
+    # them directly (e.g. FSM_state), and also preserved under _beacon.
     decoded_combined = {**data}
     if beacon_telemetry:
-        decoded_combined["_beacon"] = beacon_telemetry
+        decoded_combined.update(beacon_telemetry)   # top-level for consumers
+        decoded_combined["_beacon"] = beacon_telemetry  # preserved copy
 
     # ── Persist packet ─────────────────────────────────────────
     pkt_id, was_new = packet_store.store_packet_if_new(

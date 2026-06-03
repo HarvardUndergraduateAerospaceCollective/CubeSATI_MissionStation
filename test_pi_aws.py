@@ -119,11 +119,11 @@ def main():
     # ── 3. Process packet through aws_sync pipeline ─
     print("\n[aws_sync processing]")
     try:
-        was_new = aws_sync._process_and_upsert(pkt)
-        test("_process_and_upsert succeeded", True)
+        was_new = aws_sync._process_and_store(pkt)
+        test("_process_and_store succeeded", True)
         test("packet was inserted", was_new)
     except Exception as e:
-        test("_process_and_upsert succeeded", False, str(e))
+        test("_process_and_store succeeded", False, str(e))
 
     count = packet_store.packet_count()
     test("local DB has 1 packet", count == 1, f"got {count}")
@@ -146,7 +146,7 @@ def main():
     # ── 5. Dedup: process same packet again ───────
     print("\n[dedup across sync]")
     try:
-        was_new2 = aws_sync._process_and_upsert(pkt)
+        was_new2 = aws_sync._process_and_store(pkt)
         test("duplicate rejected", not was_new2)
     except Exception as e:
         test("duplicate rejected", False, str(e))

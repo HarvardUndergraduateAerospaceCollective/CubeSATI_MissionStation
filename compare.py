@@ -186,6 +186,20 @@ def process_packet(pkt: dict, *, dry_run: bool = False) -> str:
             )
             return "new"
 
+        # Decode the beacon before storing so decoded_json is populated
+        beacon_telemetry: dict = {}
+        if raw_bytes and not pkt.get("crc_error", False):
+            try:
+                result = beacon_decoder.decode_beacon(raw_bytes)
+                beacon_telemetry = result.get("telemetry", {})
+            except Exception as exc:
+                log.debug(f"Beacon decode failed (pre-store): {exc}")
+
+        decoded_combined = {**pkt}
+        if beacon_telemetry:
+            decoded_combined.update(beacon_telemetry)   # top-level for FSM/light consumers
+            decoded_combined["_beacon"] = beacon_telemetry
+
         # Store the packet (deduplication by frame_hash)
         pkt_id, was_new = packet_store.store_packet_if_new(
             satellite=pkt.get("satellite", ""),
@@ -196,7 +210,7 @@ def process_packet(pkt: dict, *, dry_run: bool = False) -> str:
             snr=pkt.get("snr"),
             crc_error=bool(pkt.get("crc_error", False)),
             raw_frame=raw_bytes,
-            decoded=None,  # will re-decode below
+            decoded=decoded_combined,
             source=pkt.get("source", "aws_sync"),
             received_at=pkt.get("received_at"),
         )
@@ -204,16 +218,14 @@ def process_packet(pkt: dict, *, dry_run: bool = False) -> str:
         if not was_new:
             return "skipped"
 
-        # Decode the beacon and store telemetry for new packets
-        if raw_bytes and not pkt.get("crc_error", False):
+        # Store telemetry time-series for new packets
+        if beacon_telemetry:
             try:
-                result = beacon_decoder.decode_beacon(raw_bytes)
-                telemetry = result.get("telemetry", {})
-                readings = beacon_decoder.extract_telemetry_readings(telemetry)
+                readings = beacon_decoder.extract_telemetry_readings(beacon_telemetry)
                 if readings:
                     packet_store.store_telemetry_batch(pkt_id, readings)
             except Exception as exc:
-                log.debug(f"Beacon decode failed for packet #{pkt_id}: {exc}")
+                log.debug(f"Telemetry store failed for packet #{pkt_id}: {exc}")
 
         log.info(
             f"Merged packet #{pkt_id}: sat={pkt.get('satellite', '?')} "

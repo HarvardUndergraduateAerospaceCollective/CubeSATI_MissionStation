@@ -1,3 +1,7 @@
+# NOTE: This is a copy of the root beacon_decoder.py for AWS Lambda deployment.
+# Lambda functions cannot import from the project root. Keep in sync with the
+# root copy — any bug fixes must be applied to both files.
+
 """
 Beacon Decoder — Decodes binary beacon packets from the CubeSAT-I OBC_v5d firmware.
 
