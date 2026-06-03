@@ -129,9 +129,9 @@ def _process_and_upsert(pkt: dict) -> bool:
     Returns True if the packet was newly inserted, False if it was a duplicate.
     """
     # ── Extract envelope fields ──────────────────────────────────
-    satellite  = pkt.get("satellite", "")
+    satellite  = pkt.get("satellite_id", "") or pkt.get("satellite", "")
     norad_id   = pkt.get("NORAD", pkt.get("norad"))
-    station    = pkt.get("station", pkt.get("stationName", ""))
+    station    = pkt.get("ground_station", "") or pkt.get("station", pkt.get("stationName", ""))
     freq       = pkt.get("frequency")
     rssi       = pkt.get("rssi")
     snr        = pkt.get("snr")
