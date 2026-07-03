@@ -10,10 +10,13 @@ into compact bytes.  TinyGS ground stations receive these bytes over LoRa and
 deliver them as base64-encoded blobs in the MQTT ``data`` field.
 
 This module:
-1. Strips the PacketManager 6-byte radio frame header (if present).
+1. Strips the 10-byte HUCSat radio header (sync 0xFFFF00 ... msg-type byte).
 2. Decodes the BinaryEncoder TLV stream into a Python dict.
-3. Maps 4-byte key hashes back to human-readable field names using a
-   pre-built key map generated from the satellite's firmware.
+3. Maps the transmitted key hashes (djb2 masked to 8 bits) back to
+   human-readable field names using a pre-built key map from the firmware.
+
+Frame + hashing details were reverse-engineered and verified against 60 real
+HUCSat packets (16 telemetry + 45 ping frames) downloaded from TinyGS.
 
 Usage::
 
@@ -36,14 +39,26 @@ import struct
 from typing import Optional
 
 # ──────────────────────────────────────────────
-# PacketManager header (from OBC_v5d packet_manager.py)
+# HUCSat radio frame header (verified against 60 real packets)
 # ──────────────────────────────────────────────
-# | Offset | Size | Description                               |
+# Real HUCSat frames delivered by TinyGS carry a fixed 10-byte header before
+# the BinaryEncoder TLV stream:
+# | Offset | Size | Value / Description                        |
 # |--------|------|-------------------------------------------|
-# | 0      | 1 B  | packet_identifier (message counter)       |
-# | 1-2    | 2 B  | sequence_number  (big-endian, 0-based)    |
-# | 3-4    | 2 B  | total_packets    (big-endian)             |
-# | 5      | 1 B  | abs(RSSI) of the radio at send time       |
+# | 0-2    | 3 B  | sync word  0xFF 0xFF 0x00                  |
+# | 3      | 1 B  | 0x00                                       |
+# | 4      | 1 B  | message counter (increments per beacon)   |
+# | 5-7    | 3 B  | 0x00 0x00 0x00                             |
+# | 8      | 1 B  | 0x01                                       |
+# | 9      | 1 B  | msg byte (varies; not a reliable type flag)|
+# Telemetry vs. ping is determined by whether the TLV stream decodes to known
+# fields, NOT by the header — observed both 0x00 and 0x48 here on real frames.
+HUCSAT_SYNC = b"\xff\xff\x00"
+HUCSAT_HEADER_SIZE = 10
+
+# Legacy PacketManager header (6-byte) — kept for backward compatibility with
+# older/simulated captures; real flight frames use the HUCSat header above.
+# | 0 | 1 B | packet_identifier | 1-2 | 2 B seq | 3-4 | 2 B total | 5 | 1 B rssi |
 PACKET_HEADER_SIZE = 6
 
 
@@ -108,41 +123,45 @@ KNOWN_BEACON_KEYS: list[str] = [
 
 
 # ──────────────────────────────────────────────
-# KEY MAP  —  hash(key) & 0xFFFFFFFF  →  key name
+# KEY MAP  —  hash(key) & 0xFF  →  key name
 # ──────────────────────────────────────────────
-# These are the CircuitPython djb2 hashes (seed=5381, Q_HASH_MASK=0xFFFF)
-# for every field in KNOWN_BEACON_KEYS.  CircuitPython's hash() differs from
-# CPython's (SipHash) — these values are deterministic and were computed by
-# replicating the djb2 algorithm from CircuitPython's qstr_compute_hash().
+# The OBC firmware hashes field names with CircuitPython's djb2 and masks to
+# **8 bits** (Q_HASH_MASK = 0xFF on the flight build). The hash is transmitted
+# as a 4-byte big-endian int whose value is therefore always 0x000000XX.
+# Verified against 60 real HUCSat packets (16 telemetry + 45 ping frames).
 #
 # *** If the OBC firmware (OBC_v5d) changes which fields are transmitted ***
 # *** in beacon.py _build_state / _add_system_info, you MUST regenerate ***
 # *** these hashes. Run _circuitpython_hash() below on every new key.   ***
 KEY_MAP: dict[int, str] = {
-    0x000075A2: "name",
-    0x0000FC95: "FSM_state",
-    0x0000473F: "FSM_depl",
-    0x0000FE57: "FSM_pay_set",
-    0x000058DC: "FSM_pan_light",
-    0x000021A7: "FSM_payl_light",
-    0x000090A2: "FSM_best_dir",
-    0x00004761: "FSM_magn_v_0",
-    0x00004760: "FSM_magn_v_1",
-    0x00004763: "FSM_magn_v_2",
-    0x0000E39A: "FSM_av_0",
-    0x0000E39B: "FSM_av_1",
-    0x0000E398: "FSM_av_2",
-    0x000093AC: "FSM_acc_0",
-    0x000093AD: "FSM_acc_1",
-    0x000093AE: "FSM_acc_2",
-    0x000097E8: "FSM_batt_v",
-    0x0000C1F0: "time",
-    0x00005BD5: "uptime",
+    0xA2: "name",        # collides with FSM_best_dir under 8-bit hashing (see below)
+    0x95: "FSM_state",
+    0x3F: "FSM_depl",
+    0x57: "FSM_pay_set",
+    0xDC: "FSM_pan_light",
+    0xA7: "FSM_payl_light",
+    0x61: "FSM_magn_v_0",
+    0x60: "FSM_magn_v_1",
+    0x63: "FSM_magn_v_2",
+    0x9A: "FSM_av_0",
+    0x9B: "FSM_av_1",
+    0x98: "FSM_av_2",
+    0xAC: "FSM_acc_0",
+    0xAD: "FSM_acc_1",
+    0xAE: "FSM_acc_2",
+    0xE8: "FSM_batt_v",
+    0xF0: "time",
+    0xD5: "uptime",
 }
+
+# The 8-bit hash space has one collision: "name" and "FSM_best_dir" both hash
+# to 0xA2. They are disambiguated by value type — "name" is a string, while
+# "FSM_best_dir" is numeric — so a non-string field with hash 0xA2 is best_dir.
+_COLLISION_NUMERIC: dict[int, str] = {0xA2: "FSM_best_dir"}
 
 
 def _circuitpython_hash(s: str) -> int:
-    """Replicate CircuitPython's qstr_compute_hash (djb2, 16-bit).
+    """Replicate CircuitPython's qstr_compute_hash (djb2, masked to 8 bits).
 
     Use this to compute the hash for any new beacon field added to the
     OBC firmware, then add the result to KEY_MAP above.
@@ -151,7 +170,7 @@ def _circuitpython_hash(s: str) -> int:
     for ch in s.encode("utf-8"):
         h = ((h << 5) + h) ^ ch
         h &= 0xFFFFFFFF
-    h &= 0xFFFF
+    h &= 0xFF
     return h if h != 0 else 1
 
 
@@ -187,7 +206,12 @@ def _decode_tlv_stream(data: bytes, key_map: dict[int, str]) -> dict[str, object
         key_hash, type_id = struct.unpack(">IB", data[offset:offset + 5])
         offset += 5
 
-        key_name = key_map.get(key_hash, f"field_{key_hash:08x}")
+        # Resolve the field name. Non-string fields whose hash collides go to
+        # the numeric member of the collision (e.g. 0xA2 -> FSM_best_dir, not name).
+        if type_id != _TYPE_STRING and key_hash in _COLLISION_NUMERIC:
+            key_name = _COLLISION_NUMERIC[key_hash]
+        else:
+            key_name = key_map.get(key_hash, f"field_{key_hash:08x}")
 
         if type_id == _TYPE_STRING:
             if offset >= len(data):
@@ -212,6 +236,20 @@ def _decode_tlv_stream(data: bytes, key_map: dict[int, str]) -> dict[str, object
         field_index += 1
 
     return result
+
+
+def _looks_like_hucsat_header(raw: bytes) -> bool:
+    """True if the frame starts with the HUCSat 10-byte radio header."""
+    return len(raw) >= HUCSAT_HEADER_SIZE and raw[:3] == HUCSAT_SYNC
+
+
+def strip_hucsat_header(raw: bytes) -> tuple[dict, bytes]:
+    """Strip the 10-byte HUCSat radio header, returning (header_info, payload)."""
+    header = {
+        "counter": raw[4],
+        "msg_byte": raw[9],
+    }
+    return header, raw[HUCSAT_HEADER_SIZE:]
 
 
 def strip_packet_header(raw: bytes) -> tuple[dict, bytes]:
@@ -287,7 +325,11 @@ def decode_beacon(
     header_info: dict = {}
     payload = raw
 
-    if strip_header is True or (strip_header is None and _looks_like_packet_header(raw)):
+    if strip_header is not False and _looks_like_hucsat_header(raw):
+        # Real flight frames: 10-byte HUCSat radio header.
+        header_info, payload = strip_hucsat_header(raw)
+    elif strip_header is True or (strip_header is None and _looks_like_packet_header(raw)):
+        # Legacy/simulated captures: 6-byte PacketManager header.
         header_info, payload = strip_packet_header(raw)
 
     telemetry = _decode_tlv_stream(payload, key_map)

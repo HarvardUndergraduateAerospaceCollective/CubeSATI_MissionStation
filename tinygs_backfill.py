@@ -147,8 +147,15 @@ _BROWSER_HEADERS = {
 }
 
 
-def fetch(url: str, token: str | None) -> list:
+def fetch(url: str, token: str | None,
+          session_token: str | None = None, user_id: str | None = None) -> list:
     headers = dict(_BROWSER_HEADERS)
+    # TinyGS v4 authenticates with custom sessiontoken + userid headers (grab
+    # them from a logged-in browser's DevTools request), not a Bearer token.
+    if session_token:
+        headers["sessiontoken"] = session_token
+    if user_id:
+        headers["userid"] = user_id
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = Request(url, headers=headers)
@@ -242,11 +249,14 @@ def main():
     src.add_argument("--url", help="Full TinyGS API URL returning the packet list (from DevTools).")
     src.add_argument("--file", help="Local JSON file of packets (save the --url response from your browser).")
     ap.add_argument("--token", help="Optional TinyGS API bearer token.")
+    ap.add_argument("--session-token", help="TinyGS 'sessiontoken' header (from a logged-in browser).")
+    ap.add_argument("--user-id", help="TinyGS 'userid' header (same as your MQTT username).")
     ap.add_argument("--norad", type=int, help="If set, only import packets matching this NORAD id.")
     ap.add_argument("--dry-run", action="store_true", help="Fetch and parse, but write nothing.")
     args = ap.parse_args()
 
-    packets = load_file(args.file) if args.file else fetch(args.url, args.token)
+    packets = (load_file(args.file) if args.file
+               else fetch(args.url, args.token, args.session_token, args.user_id))
     print(f"Loaded {len(packets)} packets from {'file' if args.file else 'TinyGS'}.\n")
 
     if args.dry_run and packets:
