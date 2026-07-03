@@ -247,7 +247,9 @@ def main():
     ap = argparse.ArgumentParser(description="Backfill historical TinyGS packets into the local DB.")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--url", help="Full TinyGS API URL returning the packet list (from DevTools).")
-    src.add_argument("--file", help="Local JSON file of packets (save the --url response from your browser).")
+    src.add_argument("--file", nargs="+", metavar="FILE",
+                     help="One or more local JSON files of packets (saved from your browser). "
+                          "Duplicates across files are skipped, so overlapping pages are fine.")
     ap.add_argument("--token", help="Optional TinyGS API bearer token.")
     ap.add_argument("--session-token", help="TinyGS 'sessiontoken' header (from a logged-in browser).")
     ap.add_argument("--user-id", help="TinyGS 'userid' header (same as your MQTT username).")
@@ -255,9 +257,14 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Fetch and parse, but write nothing.")
     args = ap.parse_args()
 
-    packets = (load_file(args.file) if args.file
-               else fetch(args.url, args.token, args.session_token, args.user_id))
-    print(f"Loaded {len(packets)} packets from {'file' if args.file else 'TinyGS'}.\n")
+    if args.file:
+        packets = []
+        for fp in args.file:
+            packets.extend(load_file(fp))
+        print(f"Loaded {len(packets)} packets from {len(args.file)} file(s).\n")
+    else:
+        packets = fetch(args.url, args.token, args.session_token, args.user_id)
+        print(f"Loaded {len(packets)} packets from TinyGS.\n")
 
     if args.dry_run and packets:
         print("--- raw keys of first packet ---")
