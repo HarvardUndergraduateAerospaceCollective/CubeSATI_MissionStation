@@ -6,25 +6,27 @@ Items to update once real mission data becomes available. Ordered by when they b
 
 ## Pre-Launch (Once NORAD ID Is Assigned)
 
-### 1. Satellite NORAD Catalog Number — `visualizer.py`
+### 1. Satellite NORAD Catalog Number / TLE — `visualizer.py`
 
 | | |
 |---|---|
-| **File** | `visualizer.py` lines 235, 300 |
-| **Current** | `cat_nr: int = 25544` (ISS as stand-in) |
-| **Replace with** | Your CubeSAT-I NORAD catalog number |
+| **File** | `visualizer.py` — `DEFAULT_CAT_NR` + `TLE_OVERRIDE` block |
+| **Current** | **TEMP:** `DEFAULT_CAT_NR = 98001` with a hardcoded predicted TLE (epoch 2026-07-02 09:00 UTC) |
+| **Replace with** | Your CubeSAT-I NORAD catalog number, then delete `TLE_OVERRIDE` |
 
-Both `get_orbital_state()` and `get_elements()` default to ISS. `web_server.py:71` calls `get_orbital_state()` with no argument, so this default propagates to all orbit calculations.
+**Deployed 2026-07-02 — no cataloged TLE exists yet** (Celestrak/Space-Track take days-to-weeks to catalog a new object). Until then, orbit math propagates from a launch-provided predicted TLE hardcoded in `TLE_OVERRIDE`. This is **temporary and approximate** — accuracy degrades the further past the epoch you propagate. Past `TLE_OVERRIDE_MAX_AGE_DAYS` (3 days) the code keeps propagating (so the dashboard never goes dark) but logs a loud error to prompt replacement.
+
+**When the real object is cataloged:** set `DEFAULT_CAT_NR` to the real NORAD ID, delete the `TLE_OVERRIDE` block, and remove `.tle_cache/98001.json`. `web_server.py:74` calls `get_orbital_state()` with no argument, so `DEFAULT_CAT_NR` propagates to all orbit calculations.
 
 ### 2. TinyGS NORAD ID Filter — `tinygs_mqtt.py`
 
 | | |
 |---|---|
 | **File** | `tinygs_mqtt.py` lines 70-78 |
-| **Current** | `SAT_NORAD_IDS = set()` (accepts all satellites) |
+| **Current** | **TEMP:** `TINYGS_SAT_IDS='98001'` in `mission.env` (TinyGS placeholder catalog number) |
 | **Set via** | `TINYGS_SAT_IDS` environment variable, comma-separated integers |
 
-Without this, the MQTT listener ingests packets from every satellite on TinyGS.
+Set to `98001` (the TinyGS placeholder for CubeSAT-I) in `mission.env`. Update to the real NORAD ID once assigned. Blank = accept all satellites.
 
 ### 3. TinyGS MQTT Credentials — `tinygs_mqtt.py`
 
@@ -44,9 +46,9 @@ Sign up at https://tinygs.com, find credentials under Personal > MQTT.
 
 | | |
 |---|---|
-| **File** | `web_server.py` line 40 |
-| **Current** | `MISSION_EPOCH_UTC = None` |
-| **Replace with** | ISO-8601 datetime string, e.g. `"2026-06-15T14:32:00+00:00"` |
+| **File** | `web_server.py` line 43 |
+| **Current** | ✅ `MISSION_EPOCH_UTC = "2026-07-02T09:00:00+00:00"` (Thu Jul 2 2026, 05:00 EDT) |
+| **Replace with** | — done |
 
 Controls MET clock and orbit counter on the dashboard. While `None`, MET displays `--:--:--` and orbits show `---`.
 

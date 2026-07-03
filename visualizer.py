@@ -5,6 +5,7 @@ All computation, no plotting — plotting lives in missioncontrol.py.
 """
 
 import json
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,12 +18,55 @@ try:
 except ImportError:
     _SGP4_AVAILABLE = False
 
+log = logging.getLogger(__name__)
+
 # ──────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────
 
 CACHE_DIR = Path(__file__).parent / ".tle_cache"
 CACHE_MAX_AGE = 2 * 60 * 60  # 2 hours in seconds
+
+# ══════════════════════════════════════════════════════════════════════
+# ⚠️  TEMPORARY TLE OVERRIDE — REMOVE ONCE CUBESAT-I IS CATALOGED  ⚠️
+# ----------------------------------------------------------------------
+# CubeSAT-I was deployed 2026-07-02 and has NO published TLE yet:
+# Celestrak/Space-Track take days-to-weeks to catalog a newly deployed
+# object. Until a real NORAD ID + tracked TLE exist, we propagate the
+# orbit from this launch-provided PREDICTED TLE instead of hitting
+# Celestrak (which would 404 on the placeholder catalog number 98001).
+#
+#   *** THIS IS TEMPORARY AND APPROXIMATE. ***
+#   These elements are a pre-launch prediction, not a tracked solution.
+#   Pass/approach times and ground track WILL drift from reality and get
+#   worse the further from the epoch (2026-07-02 09:00 UTC) you propagate.
+#
+# When the real object is cataloged:
+#   1. Delete this whole block.
+#   2. Set DEFAULT_CAT_NR to the real NORAD ID.
+#   3. Delete the stale .tle_cache/98001.json file.
+# Tracked in DEPLOYMENT_CHECKLIST.md item #1.
+# ══════════════════════════════════════════════════════════════════════
+TEMP_CAT_NR = 98001
+TLE_OVERRIDE = {
+    TEMP_CAT_NR: (
+        "1 98001U 26001A   26183.37500000  .00000100  00000+0  13146-3 0  9990",
+        "2 98001  51.6458 224.8870 0010677 125.5812  33.0212 15.48446246 57361",
+    ),
+}
+
+# How long the predicted TLE is considered trustworthy, in days past its
+# epoch. We keep propagating it after this (a stale orbit beats a broken
+# dashboard), but escalate from a warning to a loud error so someone swaps
+# in the real cataloged TLE. A new object is often not cataloged for 1-2
+# weeks, so we deliberately do NOT hard-cut to a Celestrak fetch that would
+# 404 and take orbit viz down.
+TLE_OVERRIDE_MAX_AGE_DAYS = 3
+
+# Default satellite for all orbit calculations. While CubeSAT-I is
+# uncataloged this points at the temporary override above; change it to
+# the real NORAD ID once a tracked TLE is available.
+DEFAULT_CAT_NR = TEMP_CAT_NR
 
 MU_EARTH = 3.986004418e14          # m^3 s^-2
 R_EARTH = 6_371_000                # m
@@ -150,7 +194,32 @@ def _parse_tle_lines(line1: str, line2: str):
 
 
 def _fetch_tle_lines(cat_nr: int):
-    """Fetch raw TLE lines from CelesTrak for the given NORAD catalog number."""
+    """Fetch raw TLE lines from CelesTrak for the given NORAD catalog number.
+
+    TEMPORARY: if ``cat_nr`` has a hardcoded TLE_OVERRIDE entry (CubeSAT-I is
+    not yet cataloged), return that instead of hitting Celestrak. The override
+    is used regardless of age so the dashboard never goes dark, but once the
+    prediction is older than TLE_OVERRIDE_MAX_AGE_DAYS it logs a loud error.
+    """
+    override = TLE_OVERRIDE.get(cat_nr)
+    if override is not None:
+        line1, line2 = override
+        age_days = (time.time() - _parse_tle_epoch(line1[18:32])) / 86400.0
+        if age_days <= TLE_OVERRIDE_MAX_AGE_DAYS:
+            log.warning(
+                "Using TEMPORARY predicted TLE for cat_nr=%s (%.1f days past "
+                "epoch). Replace with the real cataloged TLE as soon as available.",
+                cat_nr, age_days,
+            )
+        else:
+            log.error(
+                "TEMPORARY TLE for cat_nr=%s is %.1f days past epoch (> %d-day "
+                "trust window) and is now UNRELIABLE. Set DEFAULT_CAT_NR to the "
+                "real NORAD ID and delete the TLE_OVERRIDE block in visualizer.py.",
+                cat_nr, age_days, TLE_OVERRIDE_MAX_AGE_DAYS,
+            )
+        return line1, line2
+
     import requests
 
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={cat_nr}&FORMAT=TLE"
@@ -336,7 +405,7 @@ def _save_cache(cat_nr: int, elements: tuple, extras=None):
     _cache_path(cat_nr).write_text(json.dumps(payload))
 
 
-def get_orbital_state(cat_nr: int = 25544):
+def get_orbital_state(cat_nr: int = DEFAULT_CAT_NR):
     """Fetch TLE and return epoch-anchored orbital state.
 
     Returns keys:
@@ -408,7 +477,7 @@ def get_orbital_state(cat_nr: int = 25544):
     return state
 
 
-def get_elements(cat_nr: int = 25544):
+def get_elements(cat_nr: int = DEFAULT_CAT_NR):
     """
     Fetch TLE from CelesTrak for the given NORAD catalog number.
     Results are cached for 2 hours to avoid rate-limiting.

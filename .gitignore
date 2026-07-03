@@ -21,3 +21,8 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Secrets / environment (never commit credentials)
+.env
+*.env
+mission.env

@@ -40,7 +40,7 @@ import packet_store
 # Format: ISO-8601 with timezone, e.g. "2026-06-15T14:32:00+00:00"
 # Leave as None until the satellite separates; MET will show --:--:-- until then.
 # ──────────────────────────────────────────────
-MISSION_EPOCH_UTC = None
+MISSION_EPOCH_UTC = "2026-07-02T09:00:00+00:00"  # Thu Jul 2 2026, 05:00 EDT (Boston)
 
 log = logging.getLogger(__name__)
 app = Flask(__name__, template_folder="templates", static_folder="static")
