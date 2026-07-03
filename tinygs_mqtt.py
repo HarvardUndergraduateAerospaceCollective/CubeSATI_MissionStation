@@ -44,6 +44,7 @@ import base64
 import json
 import logging
 import os
+import ssl
 import threading
 import time
 from datetime import datetime, timezone
@@ -266,10 +267,19 @@ def create_client() -> mqtt.Client:
     except AttributeError:
         client = mqtt.Client()                                  # paho-mqtt 1.x
     if MQTT_USE_TLS:
-        client.tls_set()                       # system CA bundle, TLS 1.2+
         if MQTT_TLS_INSECURE:
-            client.tls_insecure_set(True)
-        log.info("MQTT TLS enabled (port %d)", MQTT_PORT)
+            # Encrypt but skip cert-chain + hostname verification. Needed when
+            # the broker presents a chain the Pi can't verify (missing local
+            # issuer / incomplete chain). Order matters: disable check_hostname
+            # before setting CERT_NONE, or ssl raises.
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            client.tls_set_context(ctx)
+            log.warning("MQTT TLS enabled WITHOUT cert verification (TINYGS_MQTT_TLS_INSECURE=1)")
+        else:
+            client.tls_set()                   # system CA bundle, verified
+            log.info("MQTT TLS enabled with cert verification (port %d)", MQTT_PORT)
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.on_connect    = _on_connect
