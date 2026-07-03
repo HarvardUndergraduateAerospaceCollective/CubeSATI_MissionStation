@@ -790,7 +790,12 @@ def _check_new_packets():
 def main():
     parser = argparse.ArgumentParser(description="Mission Control Web Dashboard")
     parser.add_argument("--live", action="store_true",
-                        help="Enable live MQTT listener")
+                        help="Enable live packet capture (TinyGS v3 API poller)")
+    parser.add_argument("--mqtt", action="store_true",
+                        help="Also start the MQTT listener (only useful if you operate "
+                             "your OWN TinyGS ground station; not needed for network-wide capture)")
+    parser.add_argument("--poll-interval", type=int, default=300,
+                        help="Seconds between TinyGS v3 API polls when --live (default 300)")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--n-orbits", type=float, default=3.0,
                         help="Default number of orbits to display")
@@ -812,10 +817,17 @@ def main():
     socketio.start_background_task(_pass_watcher)
 
     if args.live:
-        import tinygs_mqtt
-        tinygs_mqtt.start_listener()
+        # Network-wide capture: poll the TinyGS v3 API (headless, signed request).
+        # This replaces the MQTT listener, which only ever delivers packets from
+        # your OWN ground stations (we run none) — see tinygs_poller.py.
+        import tinygs_poller
+        tinygs_poller.start_poller(interval=args.poll_interval)
         socketio.start_background_task(_check_new_packets)
-        log.info("MQTT listener started")
+        log.info("Live capture: TinyGS v3 poller started (every %ds)", args.poll_interval)
+        if args.mqtt:
+            import tinygs_mqtt
+            tinygs_mqtt.start_listener()
+            log.info("MQTT listener also started (own-station packets)")
 
     log.info("Dashboard at  http://localhost:%d", args.port)
     socketio.run(app, host=args.host, port=args.port,

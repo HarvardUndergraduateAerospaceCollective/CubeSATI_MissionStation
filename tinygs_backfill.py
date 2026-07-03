@@ -196,8 +196,12 @@ def parse_packet(pkt: dict) -> dict:
     }
 
 
-def store_one(fields: dict, original: dict) -> str:
-    """Decode + store one parsed packet. Returns 'new' | 'dup' | 'nodata'."""
+def store_one(fields: dict, original: dict, source: str = SOURCE) -> str:
+    """Decode + store one parsed packet. Returns 'new' | 'dup' | 'nodata'.
+
+    ``source`` tags the DB row so different importers (backfill vs the live
+    browser poller) stay distinguishable; defaults to this module's SOURCE.
+    """
     raw = fields["raw_frame"]
 
     beacon_telemetry: dict = {}
@@ -224,7 +228,7 @@ def store_one(fields: dict, original: dict) -> str:
         crc_error=fields["crc_error"],
         raw_frame=raw,
         decoded=decoded_combined if decoded_combined else None,
-        source=SOURCE,
+        source=source,
         received_at=fields["received_at"],
     )
     if not was_new:
