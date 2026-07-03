@@ -13,22 +13,22 @@ It reuses the exact same decode + store path as the live listener:
     - tags rows ``source="tinygs_backfill"`` so they're distinguishable
 
 Because dedup keys on the SHA-256 of the raw frame, this is safe to re-run
-and safe to run alongside the live MQTT listener — duplicates are skipped.
+and safe to run alongside the live MQTT listener - duplicates are skipped.
 
-──────────────────────────────────────────────────────────────────────────
+--------------------------------------------------------------------------
 USAGE
-──────────────────────────────────────────────────────────────────────────
+--------------------------------------------------------------------------
 1. Open your satellite's page on https://tinygs.com, press F12 -> Network,
    reload, and find the XHR request to ``api.tinygs.com`` that returns the
    packet list. Copy its full URL.
 
-2. Dry run first — this fetches, prints the raw JSON keys of the first
+2. Dry run first - this fetches, prints the raw JSON keys of the first
    packet and how each field mapped, and writes NOTHING:
 
      python tinygs_backfill.py --url "<paste API URL>" --dry-run
 
    Check the parsed output. If a field mapped to None that shouldn't have,
-   the raw-keys dump tells us the real key name — tweak FIELD_CANDIDATES
+   the raw-keys dump tells us the real key name - tweak FIELD_CANDIDATES
    below (or send it to me) and re-run.
 
 3. Real import:
@@ -98,7 +98,7 @@ def _to_iso(value) -> str:
     """Normalise a packet timestamp (ms/s epoch or ISO string) to ISO-8601 UTC."""
     if value is None:
         return datetime.now(timezone.utc).isoformat()
-    # Numeric epoch — seconds or milliseconds.
+    # Numeric epoch - seconds or milliseconds.
     if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace(".", "", 1).isdigit()):
         num = float(value)
         if num > 1e12:      # milliseconds
@@ -122,8 +122,33 @@ def _extract_list(payload):
     return []
 
 
+def load_file(path: str) -> list:
+    """Load packets from a saved JSON response file (browser fallback)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"Failed to read/parse {path}: {exc}")
+    packets = _extract_list(payload)
+    if not packets:
+        sys.exit(f"No packet list found in {path}. Top-level type was {type(payload).__name__}.")
+    return packets
+
+
+# A real browser User-Agent + tinygs.com Referer/Origin. TinyGS's edge stalls
+# bare script requests (no response -> read timeout); browser-like headers
+# usually get through. If it still times out, use --file (see module docstring).
+_BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://tinygs.com/",
+    "Origin": "https://tinygs.com",
+}
+
+
 def fetch(url: str, token: str | None) -> list:
-    headers = {"User-Agent": "cubesat-backfill/1.0", "Accept": "application/json"}
+    headers = dict(_BROWSER_HEADERS)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = Request(url, headers=headers)
@@ -132,8 +157,11 @@ def fetch(url: str, token: str | None) -> list:
             payload = json.loads(resp.read().decode())
     except HTTPError as exc:
         sys.exit(f"HTTP {exc.code} from TinyGS: {exc.reason}")
-    except (URLError, json.JSONDecodeError) as exc:
-        sys.exit(f"Failed to fetch/parse TinyGS response: {exc}")
+    except (URLError, json.JSONDecodeError, TimeoutError) as exc:
+        sys.exit(f"Failed to fetch/parse TinyGS response: {exc}\n"
+                 "If this is a timeout, the API is likely blocking scripts. Fall back to:\n"
+                 "  1. open the --url in your browser, save the JSON to packets.json\n"
+                 "  2. python tinygs_backfill.py --file packets.json [--dry-run]")
     packets = _extract_list(payload)
     if not packets:
         sys.exit("No packet list found in response. Top-level type was "
@@ -210,14 +238,16 @@ def store_one(fields: dict, original: dict) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description="Backfill historical TinyGS packets into the local DB.")
-    ap.add_argument("--url", required=True, help="Full TinyGS API URL returning the packet list (from DevTools).")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--url", help="Full TinyGS API URL returning the packet list (from DevTools).")
+    src.add_argument("--file", help="Local JSON file of packets (save the --url response from your browser).")
     ap.add_argument("--token", help="Optional TinyGS API bearer token.")
     ap.add_argument("--norad", type=int, help="If set, only import packets matching this NORAD id.")
     ap.add_argument("--dry-run", action="store_true", help="Fetch and parse, but write nothing.")
     args = ap.parse_args()
 
-    packets = fetch(args.url, args.token)
-    print(f"Fetched {len(packets)} packets from TinyGS.\n")
+    packets = load_file(args.file) if args.file else fetch(args.url, args.token)
+    print(f"Loaded {len(packets)} packets from {'file' if args.file else 'TinyGS'}.\n")
 
     if args.dry_run and packets:
         print("--- raw keys of first packet ---")
@@ -246,9 +276,9 @@ def main():
             counts["error"] += 1
             print(f"  error on packet: {exc}", file=sys.stderr)
 
-    print("── summary ──")
+    print("--- summary ---")
     if args.dry_run:
-        print("(dry run — nothing written)")
+        print("(dry run - nothing written)")
     print(f"  new (stored):        {counts['new']}")
     print(f"  duplicates skipped:  {counts['dup']}")
     print(f"  stored w/o raw data: {counts['nodata']}")
