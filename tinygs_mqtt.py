@@ -69,6 +69,12 @@ MQTT_PORT     = int(os.environ.get("TINYGS_MQTT_PORT", "1883"))
 MQTT_USERNAME = os.environ.get("TINYGS_MQTT_USER", "")      # <-- your TinyGS username
 MQTT_PASSWORD = os.environ.get("TINYGS_MQTT_PASS", "")      # <-- your TinyGS API key / password
 
+# Use MQTT-over-TLS. Required on networks that block plaintext port 1883
+# (e.g. many institutional firewalls) — set TINYGS_MQTT_TLS=1 and
+# TINYGS_MQTT_PORT=8883. TLS_INSECURE skips cert verification (last resort).
+MQTT_USE_TLS      = os.environ.get("TINYGS_MQTT_TLS", "").lower() in ("1", "true", "yes")
+MQTT_TLS_INSECURE = os.environ.get("TINYGS_MQTT_TLS_INSECURE", "").lower() in ("1", "true", "yes")
+
 # Which satellite(s) to follow  (NORAD catalog number as int)
 # PIN: Replace with your CubeSAT's NORAD ID once it's assigned.
 # Multiple IDs separated by comma.  Leave blank to accept ALL satellites.
@@ -255,7 +261,15 @@ def _on_disconnect(client, userdata, rc):
 
 def create_client() -> mqtt.Client:
     """Build and configure an MQTT client (not yet connected)."""
-    client = mqtt.Client()
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)  # paho-mqtt >= 2.0
+    except AttributeError:
+        client = mqtt.Client()                                  # paho-mqtt 1.x
+    if MQTT_USE_TLS:
+        client.tls_set()                       # system CA bundle, TLS 1.2+
+        if MQTT_TLS_INSECURE:
+            client.tls_insecure_set(True)
+        log.info("MQTT TLS enabled (port %d)", MQTT_PORT)
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.on_connect    = _on_connect
