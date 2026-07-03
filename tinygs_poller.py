@@ -89,17 +89,33 @@ def _client_timestamp() -> str:
     return base64.b64encode(signed).decode()
 
 
-def _fetch_page(satellite: str, before=None, timeout: int = FETCH_TIMEOUT) -> list:
-    """GET one page of /v3/packets for a satellite (newest first, or before a cursor)."""
+def _fetch_page(satellite: str, before=None, timeout: int = FETCH_TIMEOUT,
+                retries: int = 2) -> list:
+    """GET one page of /v3/packets (newest first, or before a cursor).
+
+    Transient network timeouts are retried a couple times with a fresh signature
+    — the roof/institutional network occasionally drops a request. HTTP status
+    errors (404/429) are meaningful and raised straight to the caller.
+    """
     url = f"{API_BASE}/v3/packets?satellite={quote(satellite)}"
     if before is not None:
         url += f"&before={before}"
-    headers = dict(_HEADERS_BASE)
-    headers["x-client-timestamp"] = _client_timestamp()  # fresh signature per request
-    req = Request(url, headers=headers)
-    with urlopen(req, timeout=timeout) as resp:
-        payload = json.loads(resp.read().decode())
-    return _extract_list(payload)   # handles {"packets": [...]}
+    last_exc = None
+    for attempt in range(retries + 1):
+        headers = dict(_HEADERS_BASE)
+        headers["x-client-timestamp"] = _client_timestamp()  # fresh signature per try
+        try:
+            req = Request(url, headers=headers)
+            with urlopen(req, timeout=timeout) as resp:
+                return _extract_list(json.loads(resp.read().decode()))
+        except HTTPError:
+            raise
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            last_exc = exc
+            if attempt < retries:
+                log.debug("fetch timed out (attempt %d), retrying...", attempt + 1)
+                time.sleep(3)
+    raise last_exc
 
 
 def poll_once(satellite: str = DEFAULT_SAT, max_pages: int = DEFAULT_MAX_PAGES,
@@ -154,20 +170,25 @@ def run_forever(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL,
                      c["pages"], c["captured"], c["new"], c["dup"], c["nodata"], c["error"])
             delay = interval  # healthy — reset cadence
         except HTTPError as exc:
-            # 404 = "no packets" (normal empty), not an error worth backing off for.
+            # 404 = "no packets" (normal empty). 429 = rate-limited -> back off hard.
+            # Other HTTP / transient network errors -> just retry next interval so a
+            # flaky network doesn't spiral the poller into an hour-long backoff.
             if exc.code == 404:
                 log.info("poll: no packets (404)")
                 delay = interval
-            else:
+            elif exc.code == 429:
                 delay = min(max(delay * 2, interval), MAX_BACKOFF)
-                log.warning("HTTP %s from v3 API; backing off to %ds", exc.code, delay)
+                log.warning("HTTP 429 rate-limited; backing off to %ds", delay)
+            else:
+                log.warning("HTTP %s from v3 API; retrying in %ds", exc.code, interval)
+                delay = interval
         except (URLError, TimeoutError, json.JSONDecodeError, ConnectionError) as exc:
-            delay = min(max(delay * 2, interval), MAX_BACKOFF)
-            log.warning("poll failed (%s: %s); backing off to %ds",
-                        type(exc).__name__, exc, delay)
+            log.warning("poll failed (%s: %s); retrying in %ds",
+                        type(exc).__name__, exc, interval)
+            delay = interval
         except Exception:
-            delay = min(max(delay * 2, interval), MAX_BACKOFF)
-            log.exception("unexpected poll error; backing off to %ds", delay)
+            log.exception("unexpected poll error; retrying in %ds", interval)
+            delay = interval
         time.sleep(delay)
 
 
