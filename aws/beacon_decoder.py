@@ -35,6 +35,7 @@ to compute the hash and update ``KEY_MAP``.  For local testing with CPython-
 generated packets, pass ``build_cpython_key_map()`` as the ``key_map`` argument.
 """
 
+import math
 import struct
 from typing import Optional
 
@@ -291,6 +292,25 @@ def _looks_like_packet_header(raw: bytes) -> bool:
 
 
 # ──────────────────────────────────────────────
+# Unit normalization
+# ──────────────────────────────────────────────
+# The IMU transmits angular velocity in radians/sec, but FIELD_META declares
+# these fields in °/s. Convert so stored values match their unit. Verified
+# against real data: |omega| ~0.5 rad/s = ~27 °/s, consistent with the
+# satellite's `detumble` FSM state (a raw 0.5 "°/s" would be implausibly slow).
+_RAD_TO_DEG = 180.0 / math.pi
+_ANGULAR_VELOCITY_FIELDS = ("FSM_av_0", "FSM_av_1", "FSM_av_2")
+
+
+def _normalize_units(telemetry: dict) -> None:
+    """Convert decoded fields in-place to the units declared in FIELD_META."""
+    for key in _ANGULAR_VELOCITY_FIELDS:
+        val = telemetry.get(key)
+        if isinstance(val, (int, float)):
+            telemetry[key] = val * _RAD_TO_DEG
+
+
+# ──────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────
 
@@ -333,6 +353,7 @@ def decode_beacon(
         header_info, payload = strip_packet_header(raw)
 
     telemetry = _decode_tlv_stream(payload, key_map)
+    _normalize_units(telemetry)
 
     return {"header": header_info, "telemetry": telemetry}
 
