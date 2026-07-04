@@ -218,6 +218,74 @@
     console.error("Chart init failed:", chartErr);
   }
 
+  // ── Gyroscope quad: 4 mini line charts (X / Y / Z / MAG) ──
+  // Panel index 3 (chart-3) no longer exists as a single canvas, so charts[3]
+  // is null above; this panel is rendered as a 2x2 grid of small charts instead.
+  const gyroCharts = [];
+  function makeMiniChart(canvasId, color) {
+    const el = document.getElementById(canvasId);
+    if (!el) return null;
+    return new Chart(el.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [{ data: [], borderColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: true, ticks: { color: AXIS_TICK_COLOR, font: { size: 8, ...AXIS_FONT }, maxTicksLimit: 3 }, grid: { color: GRID_COLOR } },
+          y: { display: true, ticks: { color: AXIS_TICK_COLOR, font: { size: 8, ...AXIS_FONT }, maxTicksLimit: 3 }, grid: { color: GRID_COLOR } },
+        },
+      },
+    });
+  }
+  try {
+    for (let k = 0; k < 4; k++) {
+      gyroCharts.push(makeMiniChart("chart-3-" + k, PANEL_COLORS[k % PANEL_COLORS.length]));
+    }
+  } catch (gErr) {
+    console.error("Gyro quad init failed:", gErr);
+  }
+
+  function updateGyroQuad(p) {
+    const awaiting = document.getElementById("awaiting-3");
+    const hasData = p.series && p.series.some(function (s) { return s.y && s.y.length > 0; });
+    if (!hasData) {
+      if (awaiting) awaiting.classList.remove("hidden");
+      return;
+    }
+    if (awaiting) awaiting.classList.add("hidden");
+
+    // Shared Y scale across all four cells so magnitudes compare directly.
+    let lo = Infinity, hi = -Infinity;
+    p.series.forEach(function (s) {
+      (s.y || []).forEach(function (v) {
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      });
+    });
+    if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 1; }
+    const pad = (hi - lo) * 0.08 || 1;
+    const yMin = lo - pad, yMax = hi + pad;
+
+    p.series.forEach(function (s, k) {
+      const chart = gyroCharts[k];
+      if (!chart) return;
+      chart.data.labels = p.x;
+      chart.data.datasets[0].data = s.y;
+      chart.data.datasets[0].borderColor = s.color;
+      chart.options.scales.y.min = yMin;
+      chart.options.scales.y.max = yMax;
+      chart.update();
+      const lbl = document.getElementById("quad-label-" + k);
+      if (lbl) { lbl.textContent = s.label; lbl.style.color = s.color; }
+    });
+  }
+
 
   // ──────────────────────────────────────────
   // Data fetching
@@ -438,6 +506,7 @@
     try {
       const data = await fetchJSON("/api/panels");
       data.panels.forEach(function (p, i) {
+        if (p.multi) { updateGyroQuad(p); return; }
         const chart = charts[i];
         if (!chart) return;
         const awaiting = document.getElementById("awaiting-" + i);

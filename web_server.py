@@ -443,9 +443,33 @@ def api_track():
                    future_segments=future_segments)
 
 
+def _build_multi_panel(mod, window_min):
+    """Serialize a multi-series panel (shared x, N y-series) with the same
+    windowing + downsampling used for single-series panels. Read-only."""
+    d = mod.compute_series()
+    x = list(d.get("x", []))
+    series = d.get("series", [])
+    if window_min is not None and x:
+        cutoff = x[-1] - window_min
+        keep = [i for i, xv in enumerate(x) if xv >= cutoff]
+        x = [x[i] for i in keep]
+        series = [{"label": s["label"], "color": s["color"],
+                   "y": [s["y"][i] for i in keep]} for s in series]
+    step = max(1, len(x) // 300) if x else 1
+    return {
+        "title": mod.TITLE,
+        "ylabel": mod.Y_LABEL,
+        "multi": True,
+        "x": [round(float(v), 3) for v in x[::step]],
+        "series": [{"label": s["label"], "color": s["color"],
+                    "y": [round(float(v), 3) for v in s["y"][::step]]}
+                   for s in series],
+    }
+
+
 @app.route("/api/panels")
 def api_panels():
-    """Return data for all four side panels."""
+    """Return data for all side panels (single-series + the gyroscope quad)."""
     n = _current_n_orbits()
 
     with _state_lock:
@@ -453,13 +477,19 @@ def api_panels():
 
     panels = []
     for mod in [panel_altitude, panel_signal, panel_magnetometer, panel_temperature, panel_power]:
+        window_min = PANEL_WINDOWS.get(mod.__name__)
+
+        # Multi-series panels (gyroscope quad) return {x, series:[{label,color,y}]}.
+        if getattr(mod, "MULTI_SERIES", False):
+            panels.append(_build_multi_panel(mod, window_min))
+            continue
+
         if getattr(mod, "SOURCE", "orbital") == "telemetry":
             x, y = mod.compute()
         else:
             x, y = mod.compute(orbital, n)
 
         # Sliding window: keep only the last N minutes of data
-        window_min = PANEL_WINDOWS.get(mod.__name__)
         if window_min is not None and len(x) > 0:
             cutoff = x[-1] - window_min
             mask = x >= cutoff
