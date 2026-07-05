@@ -183,6 +183,10 @@ def parse_packet(pkt: dict) -> dict:
     freq = _pick(pkt, "frequency")
     rssi = _pick(pkt, "rssi")
     snr = _pick(pkt, "snr")
+    # NOTE: v3 satellite-feed packets do NOT carry ground-station reception RSSI
+    # (it's per-station and aggregated away). parsed.packetManagerHeader.rssiDbm
+    # looks like RSSI but is TinyGS misreading HUCSat's fixed header byte (raw[9]
+    # =0x47 => a constant -71), so it is deliberately NOT used here.
     return {
         "satellite": str(_pick(pkt, "satellite") or ""),
         "norad_id": int(norad) if norad is not None else None,

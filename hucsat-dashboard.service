@@ -1,0 +1,18 @@
+[Unit]
+Description=HUCSat Mission Control dashboard + TinyGS v3 live poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huac
+WorkingDirectory=/home/huac/Desktop/HUCSat-GroundStationVisual
+Environment=PYTHONUNBUFFERED=1
+# Source mission.env (holds `export TINYGS_*=...`) then run the dashboard with
+# live capture. exec so systemd tracks the python process directly.
+ExecStart=/bin/bash -c 'source mission.env && exec python3 web_server.py --live --poll-interval 90'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

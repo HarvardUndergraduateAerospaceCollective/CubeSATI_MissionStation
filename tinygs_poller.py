@@ -160,12 +160,15 @@ def poll_once(satellite: str = DEFAULT_SAT, max_pages: int = DEFAULT_MAX_PAGES,
 def run_forever(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL,
                 max_pages: int = DEFAULT_MAX_PAGES, dry_run: bool = False):
     """Poll forever on a gentle cadence, backing off exponentially on errors."""
+    global _last_poll_ok
     log.info("v3 poller started: satellite=%s interval=%ds source=%s%s",
              satellite, interval, SOURCE, "  (DRY RUN)" if dry_run else "")
+    _last_poll_ok = time.time()   # start healthy
     delay = interval
     while True:
         try:
             c = poll_once(satellite, max_pages=max_pages, dry_run=dry_run)
+            _last_poll_ok = time.time()   # a completed poll (even 0 new) = healthy
             log.info("poll: pages=%d captured=%d new=%d dup=%d nodata=%d err=%d",
                      c["pages"], c["captured"], c["new"], c["dup"], c["nodata"], c["error"])
             delay = interval  # healthy — reset cadence
@@ -192,12 +195,39 @@ def run_forever(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL,
         time.sleep(delay)
 
 
+# Poller health — epoch seconds of the last poll that COMPLETED (even with 0 new
+# packets). The watchdog restarts the whole process if this goes stale, catching
+# the failure where the poll thread dies/hangs but Flask keeps serving (systemd's
+# Restart=always can't see a thread-level stall — the process is still alive).
+_last_poll_ok = None
+
+
+def _watchdog(interval: int):
+    """Exit the process if no poll has completed within the stall limit, so a
+    supervisor (systemd Restart=always) brings the whole service back."""
+    limit = int(os.environ.get("TINYGS_POLL_STALL_LIMIT", str(max(600, interval * 8))))
+    log.info("poll watchdog armed (stall limit %ds)", limit)
+    while True:
+        time.sleep(60)
+        last = _last_poll_ok
+        if last is None:
+            continue
+        stale = time.time() - last
+        if stale > limit:
+            log.error("WATCHDOG: no completed poll in %.0fs (limit %ds) — exiting "
+                      "for supervisor restart", stale, limit)
+            os._exit(1)
+
+
 def start_poller(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL) -> threading.Thread:
-    """Start the poller in a background daemon thread (mirrors tinygs_mqtt.start_listener)."""
+    """Start the poller + a stall watchdog as background daemon threads
+    (mirrors tinygs_mqtt.start_listener)."""
     t = threading.Thread(target=run_forever,
                          kwargs={"satellite": satellite, "interval": interval},
                          name="tinygs-v3-poller", daemon=True)
     t.start()
+    threading.Thread(target=_watchdog, kwargs={"interval": interval},
+                     name="tinygs-poll-watchdog", daemon=True).start()
     log.info("v3 poller thread started (satellite=%s, every %ds)", satellite, interval)
     return t
 
