@@ -41,6 +41,37 @@ log = logging.getLogger(__name__)
 
 INGEST_KEY = os.environ.get("CUBESAT_INGEST_KEY", "")
 
+# TinyGS field aliases — its API/webhook names the frame "raw", frequency
+# "freq", the station "stationNumber", and the time "serverTime" (ms), NOT the
+# {data, frequency, station, unix_GS_time} this server was first written
+# against.  Accept any of them (mirrors aws/ingest/app.py, the deployed Lambda).
+_FRAME_KEYS   = ("data", "raw", "raw_data", "raw_frame", "frame", "packet", "payload")
+_STATION_KEYS = ("station", "stationName", "stationNumber", "ground_station", "gs")
+_FREQ_KEYS    = ("frequency", "freq")
+_NORAD_KEYS   = ("NORAD", "norad", "norad_id", "noradId")
+_TIME_KEYS    = ("unix_GS_time", "serverTime", "gs_time", "time", "timestamp")
+
+
+def _first(body: dict, keys):
+    """Return the first present, non-empty value among `keys`."""
+    for k in keys:
+        v = body.get(k)
+        if v not in (None, ""):
+            return v
+    return None
+
+
+def _gs_time_seconds(value):
+    """Normalize a ground-station time to epoch SECONDS. TinyGS 'serverTime' is
+    milliseconds; 'unix_GS_time' is seconds."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    if n > 100_000_000_000:   # magnitude says milliseconds
+        n /= 1000.0
+    return n
+
 # ──────────────────────────────────────────────
 # FastAPI app
 # ──────────────────────────────────────────────
@@ -79,30 +110,34 @@ def _ingest_packet(body: dict, default_source: str) -> dict:
 
     Returns a JSON-ready response dict.
     """
-    # --- Extract fields from request body ---
-    data_b64 = body.get("data")
+    # --- Extract fields (accept TinyGS's real field names + aliases) ---
+    data_b64 = _first(body, _FRAME_KEYS)
     if not data_b64:
-        raise HTTPException(status_code=400, detail="Missing 'data' field (base64-encoded frame)")
+        raise HTTPException(
+            status_code=400,
+            detail="Missing frame field (tried: %s)" % ", ".join(_FRAME_KEYS),
+        )
 
     try:
         raw_frame = base64.b64decode(data_b64)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 in 'data' field")
+        raise HTTPException(status_code=400, detail="Invalid base64 in frame field")
 
-    satellite = body.get("satellite", "")
-    norad_id = body.get("NORAD") or body.get("norad_id")
-    station = body.get("station", "")
-    frequency = body.get("frequency")
+    satellite = body.get("satellite") or body.get("satDisplayName") or ""
+    norad_id = _first(body, _NORAD_KEYS)
+    station = _first(body, _STATION_KEYS) or ""
+    frequency = _first(body, _FREQ_KEYS)
     rssi = body.get("rssi")
     snr = body.get("snr")
     crc_error = bool(body.get("crc_error", False))
     source = body.get("source", default_source)
 
-    # Derive received_at from unix_GS_time if provided, otherwise use now
-    unix_gs_time = body.get("unix_GS_time")
-    if unix_gs_time is not None:
+    # Derive received_at from the ground-station time if present (serverTime is
+    # in milliseconds; unix_GS_time in seconds), otherwise use now.
+    gs_seconds = _gs_time_seconds(_first(body, _TIME_KEYS))
+    if gs_seconds is not None:
         try:
-            received_at = datetime.fromtimestamp(float(unix_gs_time), tz=timezone.utc).isoformat()
+            received_at = datetime.fromtimestamp(gs_seconds, tz=timezone.utc).isoformat()
         except (ValueError, TypeError, OSError):
             received_at = datetime.now(timezone.utc).isoformat()
     else:

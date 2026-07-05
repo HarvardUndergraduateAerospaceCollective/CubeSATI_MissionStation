@@ -69,6 +69,20 @@ TINYGS_PAYLOAD = {
 
 AUTH = {"X-API-Key": TEST_API_KEY}
 
+# TinyGS's REAL field names (frame under "raw", not "data"; "freq";
+# "stationNumber"; "serverTime" in epoch MILLISECONDS). This is the shape that
+# was 400'ing in production — the endpoint must accept it.
+TINYGS_NATIVE_PAYLOAD = {
+    "satellite": "CUBESAT-1",
+    "norad": 99999,
+    "stationNumber": "EA4-42",
+    "freq": 436.7,
+    "rssi": -118.0,
+    "snr": -6.75,
+    "raw": BEACON_B64,
+    "serverTime": 1711123456000,
+}
+
 
 # ──────────────────────────────────────────────
 # Fixtures
@@ -169,7 +183,23 @@ def test_deduplication(client):
     assert resp3.json()["packet_count"] == 1
 
 
+def test_ingest_tinygs_native_field_names(client):
+    """The frame arrives under 'raw' (+ freq/stationNumber/serverTime-ms), which
+    is what TinyGS actually POSTs — the exact payload that used to 400."""
+    resp = client.post("/api/ingest/tinygs", json=TINYGS_NATIVE_PAYLOAD, headers=AUTH)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+
+    resp2 = client.get("/api/packets", params={"since": "1970-01-01T00:00:00Z"}, headers=AUTH)
+    pkt = resp2.json()["packets"][0]
+    # 'raw' alias resolved, frame decoded and stored byte-for-byte.
+    assert pkt["raw_frame"] == BEACON_B64
+    assert base64.b64decode(pkt["raw_frame"]) == BEACON_FRAME
+
+
 def test_ingest_missing_data(client):
+    # No frame under ANY alias -> still a 400 (genuinely unusable for the local
+    # decode-and-store dev path).
     payload = {k: v for k, v in TINYGS_PAYLOAD.items() if k != "data"}
     resp = client.post("/api/ingest/tinygs", json=payload, headers=AUTH)
     assert resp.status_code == 400
