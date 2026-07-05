@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import os
+import socket
 import time
 from datetime import datetime, timezone
 from threading import Lock
@@ -838,6 +839,24 @@ def main():
 
     _state["live"] = args.live
     _state["n_orbits"] = args.n_orbits
+
+    # Pre-flight: claim the listen port BEFORE any network activity. If another
+    # instance already holds it (e.g. a forgotten screen session), systemd
+    # crash-loops us every RestartSec — and each attempt used to hit CelesTrak
+    # and fire a TinyGS poll before dying at the bind. Thousands of aborted
+    # requests/day from one IP reads as bot abuse (it got the Pi tarpitted);
+    # failing fast here keeps a restart loop completely network-silent.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind((args.host, args.port))
+    except OSError as exc:
+        log.error("Port %d is already in use (%s) — is another web_server "
+                  "(screen session?) still running? Exiting before touching "
+                  "the network.", args.port, exc)
+        raise SystemExit(2)
+    finally:
+        probe.close()
 
     log.info("Fetching orbital elements from CelesTrak...")
     _init_orbital()

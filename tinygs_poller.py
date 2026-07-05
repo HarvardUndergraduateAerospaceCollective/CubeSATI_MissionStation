@@ -72,6 +72,10 @@ DEFAULT_INTERVAL = int(os.environ.get("TINYGS_POLL_INTERVAL", "300"))   # second
 DEFAULT_MAX_PAGES = int(os.environ.get("TINYGS_POLL_MAX_PAGES", "10"))
 MAX_BACKOFF = int(os.environ.get("TINYGS_POLL_MAX_BACKOFF", "3600"))
 FETCH_TIMEOUT = 25
+# Pause between successive catch-up pages so a long post-outage backfill
+# doesn't machine-gun the API — rapid-fire requests are what get an IP
+# tarpitted. Normal (caught-up) polls fetch one page and never sleep.
+PAGE_PAUSE = float(os.environ.get("TINYGS_POLL_PAGE_PAUSE", "0.8"))
 
 _HEADERS_BASE = {
     "Origin": "https://app.tinygs.com",
@@ -154,6 +158,7 @@ def poll_once(satellite: str = DEFAULT_SAT, max_pages: int = DEFAULT_MAX_PAGES,
         if dry_run or page_new == 0 or oldest is None:
             break
         before = oldest
+        time.sleep(PAGE_PAUSE)  # politeness between catch-up pages
     return counts
 
 
