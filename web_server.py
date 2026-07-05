@@ -860,8 +860,12 @@ def main():
             log.info("MQTT listener also started (own-station packets)")
 
     log.info("Dashboard at  http://localhost:%d", args.port)
+    # allow_unsafe_werkzeug: Flask-SocketIO blocks its dev Werkzeug server when
+    # there's no interactive TTY (e.g. under systemd). Fine here — this is a
+    # localhost/LAN mission dashboard, the same server we've always run.
     socketio.run(app, host=args.host, port=args.port,
-                 debug=False, use_reloader=False, log_output=False)
+                 debug=False, use_reloader=False, log_output=False,
+                 allow_unsafe_werkzeug=True)
 
 
 if __name__ == "__main__":
