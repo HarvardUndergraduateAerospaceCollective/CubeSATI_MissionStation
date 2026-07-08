@@ -342,6 +342,14 @@
     approachCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     approachCtx.clearRect(0, 0, rect.width, rect.height);
 
+    // Only draw the polar grid when there's a pass to plot on it (a pass
+    // within the ~2-orbit lookahead). Otherwise leave the panel scaffold
+    // empty — the status chip explains why.
+    if (!pred || !pred.visible ||
+        typeof pred.az_deg !== "number" || typeof pred.el_deg !== "number") {
+      return;
+    }
+
     const w = rect.width;
     const h = rect.height;
     const cx = w / 2;
@@ -400,8 +408,6 @@
     }
     approachCtx.textAlign = "center";
     approachCtx.fillText("90°", cx, cy - 10);
-
-    if (!pred || typeof pred.az_deg !== "number" || typeof pred.el_deg !== "number") return;
 
     const path = Array.isArray(pred.path) ? pred.path : [];
     if (pred.visible && path.length > 1) {
@@ -871,10 +877,16 @@
       lastApproach = data;
       drawApproachPolar(lastApproach);
 
-      // No overlay for the no-pass-in-window case: "visible" only means a
-      // pass exists within the ~2-orbit lookahead (HARVARD_LOOKAHEAD_ORBITS),
-      // so an empty grid is the honest idle state, not "NO LINE OF SIGHT".
-      if (awaiting) awaiting.classList.add("hidden");
+      if (awaiting) {
+        if (data.visible) {
+          awaiting.classList.add("hidden");
+        } else {
+          // No pass inside the ~2-orbit lookahead (HARVARD_LOOKAHEAD_ORBITS):
+          // the grid is hidden too, so label the empty panel instead.
+          awaiting.textContent = "NEXT APPROACH: 2+ ORBITS AWAY";
+          awaiting.classList.remove("hidden");
+        }
+      }
     } catch (e) {
       console.error("Harvard approach fetch failed:", e);
       if (awaiting) awaiting.classList.remove("hidden");
