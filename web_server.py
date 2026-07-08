@@ -518,6 +518,25 @@ def api_panels():
     return jsonify(panels=panels)
 
 
+# HUCSat firmware quirk: the beacon "uptime" field is anchored to the OBC
+# clock's epoch instead of boot, so it arrives as ~9.47e8 s. Subtracting the
+# boot anchor recovers real seconds since boot (calibrated 2026-07-08 against
+# a known-good uptime of 518144 s). Plausible values pass through untouched
+# in case a firmware update fixes this upstream.
+HUCSAT_UPTIME_BOOT_ANCHOR = 946689024
+_UPTIME_PLAUSIBLE_MAX = 315_360_000  # 10 years
+
+
+def _fix_uptime(value):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return value
+    if v > _UPTIME_PLAUSIBLE_MAX:
+        v -= HUCSAT_UPTIME_BOOT_ANCHOR
+    return int(v) if v >= 0 else value
+
+
 @app.route("/api/status")
 def api_status():
     """Return HUD info: orbital params, MET, packet count."""
@@ -556,7 +575,7 @@ def api_status():
     fsm = packet_store.latest_fsm_state()
     fsm_state = fsm["fsm_state"] if fsm else "—"
     fsm_depl = fsm["fsm_depl"] if fsm else "—"
-    fsm_uptime = fsm["uptime"] if fsm else "—"
+    fsm_uptime = _fix_uptime(fsm["uptime"]) if fsm else "—"
 
     return jsonify(
         alt_km=round(alt_km, 1),
@@ -582,6 +601,8 @@ def api_status():
 def api_fsm():
     """Return FSM state history for the timeline panel."""
     history = packet_store.fsm_state_history(n=200)
+    for entry in history:
+        entry["uptime"] = _fix_uptime(entry.get("uptime"))
     return jsonify(history=history)
 
 
