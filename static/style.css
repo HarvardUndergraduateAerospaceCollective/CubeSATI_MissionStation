@@ -61,6 +61,12 @@ body::after {
 }
 
 .hud-item { font-size: 26px; font-weight: bold; }
+
+/* Equal flexible flanks so the title centers on the page, not just between
+   its unequal-width neighbors. */
+#met-clock  { flex: 1; text-align: left; }
+#hud-title  { flex: 0 0 auto; text-align: center; }
+#live-badge { flex: 1; text-align: right; }
 .hud-green { color: var(--phosphor-green); text-shadow: 0 0 10px rgba(51, 255, 0, 0.5); }
 .hud-amber { color: var(--phosphor-amber); text-shadow: 0 0 10px rgba(255, 176, 0, 0.5); }
 .hud-red   { color: var(--phosphor-red); text-shadow: 0 0 10px rgba(255, 34, 0, 0.5); }
