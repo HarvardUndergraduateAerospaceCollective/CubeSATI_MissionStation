@@ -182,6 +182,9 @@ def run_forever(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL,
             # Other HTTP / transient network errors -> just retry next interval so a
             # flaky network doesn't spiral the poller into an hour-long backoff.
             if exc.code == 404:
+                # "No packets" is a completed poll — count it as healthy or the
+                # watchdog trips during long quiet stretches.
+                _last_poll_ok = time.time()
                 log.info("poll: no packets (404)")
                 delay = interval
             elif exc.code == 429:
@@ -201,15 +204,18 @@ def run_forever(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL,
 
 
 # Poller health — epoch seconds of the last poll that COMPLETED (even with 0 new
-# packets). The watchdog restarts the whole process if this goes stale, catching
-# the failure where the poll thread dies/hangs but Flask keeps serving (systemd's
-# Restart=always can't see a thread-level stall — the process is still alive).
+# packets). The watchdog recovers IN-PROCESS if this goes stale: it must never
+# exit, because the poller shares a process with the Flask dashboard and
+# os._exit() took the whole dashboard down with it (2026-07-08).
 _last_poll_ok = None
 
 
-def _watchdog(interval: int):
-    """Exit the process if no poll has completed within the stall limit, so a
-    supervisor (systemd Restart=always) brings the whole service back."""
+def _watchdog(interval: int, satellite: str, poller: threading.Thread):
+    """Recover a stalled poller without killing the process. If the poll thread
+    died, start a replacement; if it is alive but stalled (e.g. an endless
+    network outage), leave it to its own retry loop — either way the dashboard
+    keeps serving. Rearms after acting so it reports once per stall window."""
+    global _last_poll_ok
     limit = int(os.environ.get("TINYGS_POLL_STALL_LIMIT", str(max(600, interval * 8))))
     log.info("poll watchdog armed (stall limit %ds)", limit)
     while True:
@@ -219,9 +225,19 @@ def _watchdog(interval: int):
             continue
         stale = time.time() - last
         if stale > limit:
-            log.error("WATCHDOG: no completed poll in %.0fs (limit %ds) — exiting "
-                      "for supervisor restart", stale, limit)
-            os._exit(1)
+            if poller.is_alive():
+                log.error("WATCHDOG: no completed poll in %.0fs (limit %ds) — poll "
+                          "thread alive but stalled; leaving it to retry",
+                          stale, limit)
+            else:
+                log.error("WATCHDOG: poll thread died and no completed poll in "
+                          "%.0fs — starting a replacement poller thread", stale)
+                poller = threading.Thread(
+                    target=run_forever,
+                    kwargs={"satellite": satellite, "interval": interval},
+                    name="tinygs-v3-poller", daemon=True)
+                poller.start()
+            _last_poll_ok = time.time()
 
 
 def start_poller(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL) -> threading.Thread:
@@ -231,7 +247,8 @@ def start_poller(satellite: str = DEFAULT_SAT, interval: int = DEFAULT_INTERVAL)
                          kwargs={"satellite": satellite, "interval": interval},
                          name="tinygs-v3-poller", daemon=True)
     t.start()
-    threading.Thread(target=_watchdog, kwargs={"interval": interval},
+    threading.Thread(target=_watchdog,
+                     kwargs={"interval": interval, "satellite": satellite, "poller": t},
                      name="tinygs-poll-watchdog", daemon=True).start()
     log.info("v3 poller thread started (satellite=%s, every %ds)", satellite, interval)
     return t
