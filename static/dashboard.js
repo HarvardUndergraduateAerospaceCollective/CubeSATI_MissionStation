@@ -55,6 +55,18 @@
     }
   ).addTo(map);
 
+  // Day/night terminator — shades the night side. Added before the track
+  // layers so it renders beneath them. The line moves ~0.25°/min, so a
+  // once-a-minute update is visually seamless.
+  const terminator = L.terminator({
+    stroke: false,
+    fillColor: "#0b2255",   // deep navy night shading
+    fillOpacity: 0.4,
+  }).addTo(map);
+  setInterval(function () {
+    terminator.setTime(new Date());
+  }, 60_000);
+
   let trackLines = L.layerGroup().addTo(map);
   let futureTrackLines = L.layerGroup().addTo(map);
 
