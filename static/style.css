@@ -325,6 +325,11 @@ body::after {
   height: 28px;
 }
 
+#status-bar .status-sep {
+  margin: 0 10px;
+  color: var(--border-dim);
+}
+
 /* ── Bottom row (row 3, col 2) ── */
 
 #bottom-row {

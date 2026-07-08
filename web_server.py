@@ -545,6 +545,13 @@ def api_status():
     except Exception:
         n_pkts = 0
 
+    # Most recent packet timestamp (ISO-8601 UTC), for the status bar.
+    try:
+        recent = packet_store.recent_packets(n=1)
+        last_pkt_at = recent[0]["received_at"] if recent else None
+    except Exception:
+        last_pkt_at = None
+
     # Latest FSM state for HUD
     fsm = packet_store.latest_fsm_state()
     fsm_state = fsm["fsm_state"] if fsm else "—"
@@ -559,6 +566,7 @@ def api_status():
         met_elapsed=met_elapsed,
         orbits_since_deploy=orbits_since_deploy,
         n_pkts=n_pkts,
+        last_pkt_at=last_pkt_at,
         live=_state["live"],
         fsm_state=fsm_state,
         fsm_depl=fsm_depl,

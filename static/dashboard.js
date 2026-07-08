@@ -531,6 +531,27 @@
     }
   }
 
+  // Render an ISO-8601 UTC timestamp in US Eastern time for the status bar.
+  function formatEastern(iso) {
+    if (!iso) return "---";
+    // DB timestamps are UTC; bare strings without a zone would be parsed as
+    // local time, so pin them to Z first.
+    if (!/(Z|[+-]\d{2}:?\d{2})$/.test(iso)) iso += "Z";
+    const d = new Date(iso);
+    if (isNaN(d)) return "---";
+    return d.toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false, timeZoneName: "short",
+    });
+  }
+
+  function setLastPkt(iso) {
+    const el = document.getElementById("last-pkt");
+    if (el) el.textContent = "LAST PKT: " + formatEastern(iso);
+  }
+
   async function refreshStatus() {
     try {
       const s = await fetchJSON("/api/status");
@@ -550,6 +571,7 @@
         "PERIOD: " + s.period_min + " min   " +
         "ORBITS: " + orbitsDisplay;
       document.getElementById("db-count").textContent = "DB: " + s.n_pkts + " pkts";
+      setLastPkt(s.last_pkt_at);
 
       if (s.alt_km > 0) {
         var theta = Math.acos(R_EARTH_KM / (R_EARTH_KM + s.alt_km));
@@ -955,6 +977,7 @@
       const socket = io();
       socket.on("new_packets", function (data) {
         document.getElementById("db-count").textContent = "DB: " + data.count + " pkts";
+        if (data.latest) setLastPkt(data.latest);
         refreshPanels();
         refreshFSM();
         refreshBestDir();
