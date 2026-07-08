@@ -1,0 +1,19 @@
+[Unit]
+Description=HUCSat AWS sync - pulls packets from DynamoDB into local mission DB
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huac
+WorkingDirectory=/home/huac/Desktop/HUCSat-GroundStationVisual
+Environment=PYTHONUNBUFFERED=1
+# Source mission.env (holds AWS_SYNC_URL + AWS_SYNC_API_KEY) then run the
+# sync daemon. exec so systemd tracks the python process directly.
+ExecStart=/bin/bash -c 'source mission.env && exec python3 aws_sync.py'
+Restart=always
+# Gentle restart pacing, same rationale as the dashboard unit.
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

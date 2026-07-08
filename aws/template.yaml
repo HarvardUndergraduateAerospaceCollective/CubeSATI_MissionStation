@@ -94,6 +94,15 @@ Parameters:
       TinyGS POSTs to this path; requests with any other token are rejected
       by the Lambda before touching DynamoDB.
 
+  SyncApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: >
+      API key the Pi must send in the x-api-key header on GET /packets
+      (HTTP APIs don't support API Gateway usage-plan keys, so the sync
+      Lambda validates this itself). Empty disables the check.
+
 # ---------------------------------------------------------------------------
 # Globals — applied to all Lambda functions
 # ---------------------------------------------------------------------------
@@ -161,6 +170,9 @@ Resources:
     Properties:
       CodeUri: sync/
       Handler: app.handler
+      Environment:
+        Variables:
+          SYNC_API_KEY: !Ref SyncApiKey
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref PacketsTable

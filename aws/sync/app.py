@@ -24,6 +24,10 @@ logger.setLevel(logging.INFO)
 
 TABLE_NAME   = os.environ["TABLE_NAME"]
 SATELLITE_ID = os.environ.get("SATELLITE_ID", "CUBESAT-1")
+SYNC_API_KEY = os.environ.get("SYNC_API_KEY", "")
+
+if not SYNC_API_KEY:
+    logger.warning("SYNC_API_KEY not set — GET /packets is UNAUTHENTICATED")
 
 dynamodb = boto3.resource("dynamodb")
 table    = dynamodb.Table(TABLE_NAME)
@@ -52,6 +56,12 @@ def _resp(status: int, body: dict) -> dict:
 
 
 def handler(event, context):
+    # --- Validate API key (HTTP API v2 lowercases header names) ---
+    if SYNC_API_KEY:
+        provided = (event.get("headers") or {}).get("x-api-key")
+        if provided != SYNC_API_KEY:
+            return _resp(401, {"error": "Invalid or missing x-api-key header"})
+
     params = event.get("queryStringParameters") or {}
 
     # --- Validate required param ---
