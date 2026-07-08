@@ -391,10 +391,12 @@
       approachCtx.fillText(lbl.text, lx, ly);
     }
 
-    approachCtx.textAlign = "left";
+    // Elevation ticks sit just INSIDE their ring and above the axis line, so
+    // the outer 0° tick can't collide with the "E 90°" azimuth label.
+    approachCtx.textAlign = "right";
     for (const elTick of [0, 30, 60]) {
       const rrTick = ((90 - elTick) / 90) * radius;
-      approachCtx.fillText(elTick + "°", cx + rrTick + 4, cy - 1);
+      approachCtx.fillText(elTick + "°", cx + rrTick - 3, cy - 8);
     }
     approachCtx.textAlign = "center";
     approachCtx.fillText("90°", cx, cy - 10);

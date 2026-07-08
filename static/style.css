@@ -224,6 +224,23 @@ body::after {
 
 .awaiting.hidden { display: none; }
 
+/* Approach polar plot: render its status text ("NO LINE OF SIGHT" /
+   "AWAITING DATA") as a compact centered chip with a solid backdrop instead
+   of bare full-panel text smearing across the grid lines. */
+#awaiting-placeholder {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 11px;
+  letter-spacing: 3px;
+  white-space: nowrap;
+  padding: 3px 10px;
+  background: rgba(5, 10, 5, 0.85);
+  border: 1px solid rgba(51, 255, 0, 0.25);
+  border-radius: 3px;
+}
+
 /* ── Best direction center label ── */
 
 .best-dir-label {
