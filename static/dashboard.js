@@ -871,14 +871,10 @@
       lastApproach = data;
       drawApproachPolar(lastApproach);
 
-      if (awaiting) {
-        if (data.visible) {
-          awaiting.classList.add("hidden");
-        } else {
-          awaiting.textContent = "NO LINE OF SIGHT";
-          awaiting.classList.remove("hidden");
-        }
-      }
+      // No overlay for the no-pass-in-window case: "visible" only means a
+      // pass exists within the ~2-orbit lookahead (HARVARD_LOOKAHEAD_ORBITS),
+      // so an empty grid is the honest idle state, not "NO LINE OF SIGHT".
+      if (awaiting) awaiting.classList.add("hidden");
     } catch (e) {
       console.error("Harvard approach fetch failed:", e);
       if (awaiting) awaiting.classList.remove("hidden");
