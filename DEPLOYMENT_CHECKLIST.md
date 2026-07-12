@@ -6,17 +6,14 @@ Items to update once real mission data becomes available. Ordered by when they b
 
 ## Pre-Launch (Once NORAD ID Is Assigned)
 
-### 1. Satellite NORAD Catalog Number / TLE — `visualizer.py`
+### 1. Satellite NORAD Catalog Number / TLE — `visualizer.py` ✅ DONE (2026-07-12)
 
 | | |
 |---|---|
-| **File** | `visualizer.py` — `DEFAULT_CAT_NR` + `TLE_OVERRIDE` block |
-| **Current** | **TEMP:** `DEFAULT_CAT_NR = 98001` with a hardcoded predicted TLE (epoch 2026-07-02 09:00 UTC) |
-| **Replace with** | Your CubeSAT-I NORAD catalog number, then delete `TLE_OVERRIDE` |
+| **File** | `visualizer.py` — `DEFAULT_CAT_NR` |
+| **Status** | **DONE:** `DEFAULT_CAT_NR = 69794` — HUCSat is cataloged ("ISS OBJECT YJ", 1998-067YJ), live CelesTrak TLEs |
 
-**Deployed 2026-07-02 — no cataloged TLE exists yet** (Celestrak/Space-Track take days-to-weeks to catalog a new object). Until then, orbit math propagates from a launch-provided predicted TLE hardcoded in `TLE_OVERRIDE`. This is **temporary and approximate** — accuracy degrades the further past the epoch you propagate. Past `TLE_OVERRIDE_MAX_AGE_DAYS` (3 days) the code keeps propagating (so the dashboard never goes dark) but logs a loud error to prompt replacement.
-
-**When the real object is cataloged:** set `DEFAULT_CAT_NR` to the real NORAD ID, delete the `TLE_OVERRIDE` block, and remove `.tle_cache/98001.json`. `web_server.py:74` calls `get_orbital_state()` with no argument, so `DEFAULT_CAT_NR` propagates to all orbit calculations.
+HUCSat was cataloged 2026-07 as **NORAD 69794**. The pre-launch predicted-TLE override (`TLE_OVERRIDE` / `TEMP_CAT_NR` 98001) has been removed; `_fetch_tle_lines` now always pulls from CelesTrak. TLEs are cached 2h (`CACHE_MAX_AGE`) and `web_server.py` re-fetches on that cadence while running. On a transient CelesTrak failure `get_orbital_state()` falls back to the last cached TLE, so orbit viz doesn't go dark. Delete the stale `.tle_cache/98001.json` on the Pi if present (harmless leftover, no longer queried).
 
 ### 2. TinyGS NORAD ID Filter — `tinygs_mqtt.py`
 
