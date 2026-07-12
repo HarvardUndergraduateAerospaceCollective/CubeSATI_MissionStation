@@ -70,8 +70,17 @@ _state = {
 }
 
 
-def _init_orbital():
-    """Fetch TLE and populate global orbital state."""
+def _init_orbital(reset_t0: bool = True):
+    """Fetch TLE and populate global orbital state.
+
+    reset_t0=True (startup) anchors the ground-track head-start clock (`t0`,
+    used by _current_n_orbits) to now. The periodic refresher passes
+    reset_t0=False so re-fetching fresh elements every 2h updates the orbit
+    without resetting the map's history-growth reference.
+
+    The TLE fetch happens before any state is touched, so a failed fetch
+    raises here and leaves the previous elements intact.
+    """
     tle_state = visualizer.get_orbital_state()
     inc = tle_state["inclination"]
     raan = tle_state["raan"]
@@ -84,8 +93,9 @@ def _init_orbital():
     period = visualizer.orbital_period(sma)
     alt_km = (sma - visualizer.R_EARTH) / 1000
     with _state_lock:
+        if reset_t0:
+            _state["t0"] = time.time()
         _state.update(
-            t0=time.time(),
             tle_epoch_unix=tle_epoch_unix,
             mean_anomaly_deg=mean_anomaly_deg,
             inc=inc, raan=raan, ecc=ecc, argp=argp, sma=sma,
@@ -99,6 +109,28 @@ def _init_orbital():
                 "arg_periapsis": argp,
             },
         )
+
+
+# Re-fetch the TLE on the same cadence as visualizer's disk cache (2h): each
+# tick the cache is expired, so CelesTrak is re-queried and the orbit is
+# re-anchored to the latest epoch instead of propagating stale elements for
+# days on a long-running process.
+_TLE_REFRESH_INTERVAL = visualizer.CACHE_MAX_AGE   # seconds (2h)
+
+
+def _tle_refresher():
+    """Background task: refresh the cached TLE every _TLE_REFRESH_INTERVAL.
+    A failed fetch is logged and the previous elements are kept."""
+    while True:
+        socketio.sleep(_TLE_REFRESH_INTERVAL)
+        try:
+            _init_orbital(reset_t0=False)
+            with _state_lock:
+                epoch, period = _state["tle_epoch_unix"], _state["period"]
+            log.info("TLE refreshed (epoch_unix=%.0f, period=%.1f min)",
+                     epoch, period / 60)
+        except Exception:
+            log.exception("TLE refresh failed; keeping previous elements")
 
 
 # Head-start: show 1 orbit of history on first load, then grow in real time.
@@ -893,6 +925,8 @@ def main():
              _state["period"] / 60, _state["alt_km"])
 
     socketio.start_background_task(_pass_watcher)
+    socketio.start_background_task(_tle_refresher)
+    log.info("TLE auto-refresh every %.0f min", _TLE_REFRESH_INTERVAL / 60)
 
     if args.live:
         # Network-wide capture: poll the TinyGS v3 API (headless, signed request).
