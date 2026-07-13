@@ -159,7 +159,7 @@ HARVARD_POINTS_PER_ORBIT = 1200
 # acquirable above it. This is the single source of truth for the pass/closest-
 # approach visibility threshold; the map coverage circle and the approach polar
 # plot consume it via /api/status and /api/harvard_approach.
-GS_MIN_ELEVATION_DEG = 40.0
+GS_MIN_ELEVATION_DEG = 30.0
 
 
 def _current_n_orbits():
