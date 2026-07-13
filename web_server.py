@@ -577,6 +577,7 @@ def api_status():
         inc = _state["inc"]
         ecc = _state["ecc"]
         period = _state["period"]
+        sma = _state["sma"]
 
     # Mission Elapsed Time — anchored to MISSION_EPOCH_UTC, null until deployed.
     met_elapsed = None
@@ -609,11 +610,17 @@ def api_status():
     fsm_depl = fsm["fsm_depl"] if fsm else "—"
     fsm_uptime = _fix_uptime(fsm["uptime"]) if fsm else "—"
 
+    # Average orbital speed: v = 2*pi*a / T (equals sqrt(mu/a) since the period
+    # is Kepler-derived from a). ~7.7 km/s in LEO. Reported in km/s and mph.
+    avg_v_ms = (2 * np.pi * sma / period) if period > 0 else 0.0
+
     return jsonify(
         alt_km=round(alt_km, 1),
         inc=round(inc, 2),
         ecc=round(ecc, 6),
         period_min=round(period / 60, 1),
+        velocity_kms=round(avg_v_ms / 1000, 2),
+        velocity_mph=round(avg_v_ms * 2.2369362920544),
         met_elapsed=met_elapsed,
         orbits_since_deploy=orbits_since_deploy,
         n_pkts=n_pkts,

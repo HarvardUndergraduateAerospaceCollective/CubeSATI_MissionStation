@@ -589,6 +589,7 @@
         "INC: " + s.inc + "°   " +
         "ECC: " + s.ecc + "   " +
         "PERIOD: " + s.period_min + " min   " +
+        "VELOCITY: " + s.velocity_kms + " km/s (" + s.velocity_mph + " mph)   " +
         "ORBITS: " + orbitsDisplay;
       document.getElementById("db-count").textContent = "DB: " + s.n_pkts + " pkts";
       setLastPkt(s.last_pkt_at);
