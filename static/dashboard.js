@@ -356,6 +356,26 @@
     const cy = h / 2;
     const radius = Math.max(10, Math.min(w, h) * 0.40);
 
+    // Obstruction mask: our antenna is blocked below this elevation, so shade
+    // the outer annulus (rings map el=0 -> edge, el=90 -> center). Drawn first
+    // so the grid lines and the pass arc render on top.
+    const gsMinEl = (typeof pred.gs_min_elevation_deg === "number") ? pred.gs_min_elevation_deg : 0;
+    if (gsMinEl > 0 && gsMinEl < 90) {
+      const rMask = ((90 - gsMinEl) / 90) * radius;
+      approachCtx.fillStyle = "rgba(255, 60, 60, 0.13)";
+      approachCtx.beginPath();
+      approachCtx.arc(cx, cy, radius, 0, Math.PI * 2, false);   // outer edge (el = 0)
+      approachCtx.arc(cx, cy, rMask, 0, Math.PI * 2, true);     // inner hole (el = mask)
+      approachCtx.fill();
+      approachCtx.strokeStyle = "rgba(255, 80, 80, 0.5)";
+      approachCtx.setLineDash([4, 3]);
+      approachCtx.lineWidth = 1;
+      approachCtx.beginPath();
+      approachCtx.arc(cx, cy, rMask, 0, Math.PI * 2);
+      approachCtx.stroke();
+      approachCtx.setLineDash([]);
+    }
+
     approachCtx.strokeStyle = "rgba(51, 255, 0, 0.22)";
     approachCtx.lineWidth = 1;
 
@@ -595,8 +615,14 @@
       setLastPkt(s.last_pkt_at);
 
       if (s.alt_km > 0) {
-        var theta = Math.acos(R_EARTH_KM / (R_EARTH_KM + s.alt_km));
-        losCircle.setRadius(R_EARTH_KM * theta * 1000);
+        // Coverage circle = the ground region from which the satellite sits
+        // above our antenna's minimum usable elevation (obstruction mask).
+        // Earth-central angle to that elevation E:  gamma = acos((R/r)cosE) - E.
+        // At E=0 this is the plain horizon footprint; the mask shrinks it.
+        var eMin = (s.gs_min_elevation_deg || 0) * Math.PI / 180;
+        var rSat = R_EARTH_KM + s.alt_km;
+        var theta = Math.acos((R_EARTH_KM / rSat) * Math.cos(eMin)) - eMin;
+        losCircle.setRadius(Math.max(0, R_EARTH_KM * theta * 1000));
       }
 
       if (s.fsm_state !== undefined) {

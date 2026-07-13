@@ -154,6 +154,13 @@ HARVARD_GS_ALT_M = (7 * 10 + 15) * 0.3048
 HARVARD_LOOKAHEAD_ORBITS = 2.0
 HARVARD_POINTS_PER_ORBIT = 1200
 
+# Ground-station horizon mask: local obstructions (buildings/trees/terrain)
+# block the antenna below this elevation, so the satellite is only actually
+# acquirable above it. This is the single source of truth for the pass/closest-
+# approach visibility threshold; the map coverage circle and the approach polar
+# plot consume it via /api/status and /api/harvard_approach.
+GS_MIN_ELEVATION_DEG = 40.0
+
 
 def _current_n_orbits():
     """Return restart-relative orbit count (kept for panel/history pacing)."""
@@ -621,6 +628,7 @@ def api_status():
         period_min=round(period / 60, 1),
         velocity_kms=round(avg_v_ms / 1000, 2),
         velocity_mph=round(avg_v_ms * 2.2369362920544),
+        gs_min_elevation_deg=GS_MIN_ELEVATION_DEG,
         met_elapsed=met_elapsed,
         orbits_since_deploy=orbits_since_deploy,
         n_pkts=n_pkts,
@@ -680,7 +688,10 @@ def _find_visible_passes(n_now, lookahead_orbits, n_points=None):
         obs_alt_m=HARVARD_GS_ALT_M,
     )
 
-    vis_idx = np.where(el_arr > 0.0)[0]
+    # A pass only counts once the satellite clears our obstruction mask — below
+    # GS_MIN_ELEVATION_DEG the antenna's view is blocked, so AOS/LOS are the
+    # mask-crossing times and passes that never reach it are dropped entirely.
+    vis_idx = np.where(el_arr >= GS_MIN_ELEVATION_DEG)[0]
     passes = []
 
     if len(vis_idx) == 0:
@@ -766,6 +777,7 @@ def api_harvard_approach():
     return jsonify(
         observer={"lat": HARVARD_LAT, "lon": HARVARD_LON},
         observer_alt_m=round(HARVARD_GS_ALT_M, 2),
+        gs_min_elevation_deg=GS_MIN_ELEVATION_DEG,
         az_deg=round(az_deg, 2),
         el_deg=round(el_deg, 2),
         eta_sec=round(eta_sec, 1),
