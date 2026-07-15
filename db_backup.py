@@ -8,11 +8,12 @@ Creates safe, verified backups of the CubeSAT mission database to:
 Designed to run every 3 hours via cron or systemd timer on a Raspberry Pi.
 
 Usage:
-  python db_backup.py              # Run both backups
-  python db_backup.py --local      # SD card only
-  python db_backup.py --cloud      # Google Drive only
-  python db_backup.py --dry-run    # Log what would happen
-  python db_backup.py --status     # Check backup infrastructure
+  python db_backup.py                   # Run both backups once and exit
+  python db_backup.py --interval 10800  # Loop: back up every 3 hours (Ctrl+C to stop)
+  python db_backup.py --local           # SD card only
+  python db_backup.py --cloud           # Google Drive only
+  python db_backup.py --dry-run         # Log what would happen
+  python db_backup.py --status          # Check backup infrastructure
 
 Setup (on the Raspberry Pi):
   1. Install rclone:
@@ -416,6 +417,34 @@ def _run_backup_locked(log: logging.Logger, do_local: bool, do_cloud: bool):
         notify_slack(summary, "warning")
 
 
+def run_forever(interval: int, *, do_local: bool = True, do_cloud: bool = True,
+                do_sync: bool = True):
+    """Run a backup every `interval` seconds until interrupted.
+
+    Each iteration is a full run_backup() (which logs, verifies, rotates and
+    Slack-alerts on its own and does not raise for a backup failure); the call
+    is still guarded so an unexpected error just skips to the next interval
+    rather than killing the loop. Ctrl+C / SIGINT exits cleanly.
+
+    NOTE: prefer cron/systemd for production — those start each run in a fresh
+    process, so a crash or leak can't silently stop the cadence. This internal
+    loop is a convenience and dies if the process does.
+    """
+    log = setup_logging()
+    log.info("Backup loop started: every %d s (%.1f h). Ctrl+C to stop.",
+             interval, interval / 3600.0)
+    try:
+        while True:
+            try:
+                run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=False,
+                           do_sync=do_sync)
+            except Exception:
+                log.exception("Backup run raised unexpectedly; continuing to next interval")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        log.info("Backup loop stopped by user")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="CubeSAT Mission DB Backup",
@@ -428,6 +457,9 @@ def main():
                         help="Skip AWS sync before backup")
     parser.add_argument("--status", action="store_true", help="Check backup infrastructure")
     parser.add_argument("--test-slack", metavar="MESSAGE", help="Send a test Slack message")
+    parser.add_argument("--interval", type=int, metavar="SECONDS",
+                        help="Loop: run a backup every SECONDS instead of once "
+                             "(minimum 60). E.g. --interval 10800 for every 3 hours.")
     args = parser.parse_args()
 
     if args.status:
@@ -450,8 +482,18 @@ def main():
         do_local = args.local
         do_cloud = args.cloud
 
-    run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=args.dry_run,
-               do_sync=not args.no_sync)
+    if args.dry_run:
+        # A dry run is always a single pass, even alongside --interval.
+        run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=True,
+                   do_sync=not args.no_sync)
+    elif args.interval:
+        if args.interval < 60:
+            parser.error("--interval must be at least 60 seconds")
+        run_forever(args.interval, do_local=do_local, do_cloud=do_cloud,
+                    do_sync=not args.no_sync)
+    else:
+        run_backup(do_local=do_local, do_cloud=do_cloud, dry_run=False,
+                   do_sync=not args.no_sync)
 
 
 if __name__ == "__main__":
